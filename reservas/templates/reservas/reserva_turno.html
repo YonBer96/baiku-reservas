@@ -1,0 +1,23 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+{% include "reservas/partials/progreso.html" %}
+
+<div class="card">
+    <h2>Turno</h2>
+
+    <form method="post">
+        {% csrf_token %}
+
+        {% for t in turnos %}
+            <button class="option-button" name="hora" value="{{ t.hora|time:'H:i' }}">
+                {{ t.hora|time:"H:i" }}
+            </button>
+        {% empty %}
+            <p class="muted">No hay turnos disponibles.</p>
+        {% endfor %}
+    </form>
+
+    <a class="back-link" href="{% url 'reserva_fecha' %}">Volver</a>
+</div>
+{% endblock %}

@@ -1,0 +1,40 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Hoy {{ hoy|date:"d/m/Y" }}</h2>
+
+    <a class="button" href="{% url 'staff_nueva_reserva' %}">Crear reserva manual</a>
+    <br>
+    <a class="option-button" href="{% url 'staff_ocupacion' %}">Ver ocupación</a>
+</div>
+
+{% for hora, reservas in turnos.items %}
+<div class="card">
+    <h3>{{ hora }}</h3>
+
+    {% for r in reservas %}
+    <div class="reserva-item">
+        <div class="reserva-info">
+            <strong>{{ r.nombre }}</strong><br>
+            {{ r.personas }} pax · {{ r.get_zona_display }}<br>
+            <span class="muted">{{ r.estado }}</span>
+        </div>
+
+        <div class="acciones">
+            <form method="post" action="{% url 'cambiar_estado' r.id %}">
+                {% csrf_token %}
+                <button name="estado" value="llegado" title="Ha llegado">✔</button>
+                <button name="estado" value="no_show" title="No-show">✖</button>
+                <button name="estado" value="cancelada" title="Cancelada">⛔</button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% empty %}
+<div class="card">
+    <p class="muted">No hay reservas hoy.</p>
+</div>
+{% endfor %}
+{% endblock %}

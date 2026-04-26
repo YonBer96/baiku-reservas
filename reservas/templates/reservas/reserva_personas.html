@@ -1,0 +1,45 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+{% include "reservas/partials/progreso.html" %}
+
+<div class="card card-animated">
+    <h2>Personas</h2>
+    <p class="helper-text">Selecciona el número de comensales.</p>
+
+    <form method="post" class="counter-form">
+        {% csrf_token %}
+
+        <div class="counter-control" data-min="1" data-max="{{ max_personas }}">
+            <button type="button" class="counter-button" data-action="minus">−</button>
+            <div class="counter-number" id="personas-numero">2</div>
+            <button type="button" class="counter-button" data-action="plus">+</button>
+        </div>
+
+        <input type="hidden" name="personas" id="personas-input" value="2">
+
+        <button class="button button-main">Continuar</button>
+    </form>
+</div>
+
+<script>
+    const control = document.querySelector(".counter-control");
+    const input = document.querySelector("#personas-input");
+    const number = document.querySelector("#personas-numero");
+    const min = parseInt(control.dataset.min, 10);
+    const max = parseInt(control.dataset.max, 10);
+
+    function setValue(value) {
+        const next = Math.min(Math.max(value, min), max);
+        input.value = next;
+        number.textContent = next;
+    }
+
+    document.querySelectorAll(".counter-button").forEach((button) => {
+        button.addEventListener("click", () => {
+            const current = parseInt(input.value, 10);
+            setValue(button.dataset.action === "plus" ? current + 1 : current - 1);
+        });
+    });
+</script>
+{% endblock %}

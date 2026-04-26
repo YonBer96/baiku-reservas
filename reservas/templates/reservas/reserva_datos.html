@@ -1,0 +1,37 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+{% include "reservas/partials/progreso.html" %}
+
+<div class="card">
+    <h2>Datos</h2>
+
+    <form method="post">
+        {% csrf_token %}
+
+        <div class="field">
+            <label>Nombre</label>
+            <input name="nombre" placeholder="Nombre" required>
+        </div>
+
+        <div class="field">
+            <label>Email</label>
+            <input name="email" type="email" placeholder="Email" required>
+        </div>
+
+        <div class="field">
+            <label>Teléfono</label>
+            <input name="telefono" placeholder="Teléfono" required>
+        </div>
+
+        <div class="field">
+            <label>Notas</label>
+            <textarea name="notas" placeholder="Alergias, comentarios..."></textarea>
+        </div>
+
+        <button class="button">Continuar</button>
+    </form>
+
+    <a class="back-link" href="{% url 'reserva_zona' %}">Volver</a>
+</div>
+{% endblock %}

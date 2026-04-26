@@ -1,0 +1,22 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+<div class="card">
+    <div class="home-text">
+        <h2>Reservas</h2>
+        <p class="muted">
+            Cocina japonesa contemporánea. Reserva tu experiencia en barra o mesa.
+        </p>
+    </div>
+
+    <a class="button" href="{% url 'reserva_personas' %}">
+        Reservar
+    </a>
+
+    <br>
+
+    <a class="option-button" href="{% url 'staff_hoy' %}">
+        Staff
+    </a>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Pago cancelado</h2>
+    <p class="muted">La reserva no queda confirmada hasta completar el pago.</p>
+
+    <a class="button" href="{% url 'reserva_resumen' %}">
+        Intentar de nuevo
+    </a>
+</div>
+{% endblock %}

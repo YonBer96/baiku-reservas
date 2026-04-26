@@ -1,0 +1,12 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Reserva confirmada</h2>
+    <p class="muted">Gracias. Hemos recibido el anticipo correctamente.</p>
+
+    <a class="button" href="{% url 'inicio' %}">
+        Volver al inicio
+    </a>
+</div>
+{% endblock %}

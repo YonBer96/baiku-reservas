@@ -1,0 +1,93 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+<div class="card card-animated">
+    <h2>Huecos del día</h2>
+    <p class="helper-text">Resumen para saber rápido qué puedes ofrecer por teléfono.</p>
+
+    <form method="get">
+        <div class="field">
+            <label>Fecha</label>
+            <input id="ocupacion-fecha" type="date" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
+        </div>
+
+        <button class="button">Ver huecos</button>
+    </form>
+</div>
+
+{% if motivo_no_reservable %}
+<div class="card card-soft unavailable-card">
+    <p><strong>Fecha no disponible</strong></p>
+    <p class="muted">{{ motivo_no_reservable }}</p>
+</div>
+{% else %}
+<div class="card card-soft">
+    <form method="post" action="{% url 'bloquear_dia' %}">
+        {% csrf_token %}
+        <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
+
+        <div class="field">
+            <label>Motivo bloqueo</label>
+            <input name="motivo" placeholder="Ej: evento privado">
+        </div>
+
+        <button class="option-button">Bloquear día</button>
+    </form>
+</div>
+{% endif %}
+
+{% if not motivo_no_reservable %}
+{% for turno in turnos %}
+<div class="card card-animated">
+    <h3>{{ turno.hora|time:"H:i" }}</h3>
+
+    <div class="ocupacion-linea">
+        <span>Total libre</span>
+        <strong>{{ turno.total_libre }}/{{ turno.total_capacidad }}</strong>
+    </div>
+    <div class="barra-progreso">
+        <div style="width: {% widthratio turno.total_ocupado turno.total_capacidad 100 %}%"></div>
+    </div>
+
+    <div class="ocupacion-linea">
+        <span>Barra libre</span>
+        <strong>{{ turno.barra_libre }}/{{ turno.barra_total }}</strong>
+    </div>
+    <div class="barra-progreso">
+        <div style="width: {% widthratio turno.barra_ocupada turno.barra_total 100 %}%"></div>
+    </div>
+
+    <div class="ocupacion-linea">
+        <span>Mesa libre</span>
+        <strong>{{ turno.mesa_libre }}/{{ turno.mesa_total }}</strong>
+    </div>
+    <div class="barra-progreso">
+        <div style="width: {% widthratio turno.mesa_ocupada turno.mesa_total 100 %}%"></div>
+    </div>
+</div>
+{% empty %}
+<div class="card">
+    <p>No hay turnos para esta fecha.</p>
+</div>
+{% endfor %}
+{% endif %}
+
+<div class="card">
+    <a class="button" href="{% url 'staff_nueva_reserva' %}?fecha={{ fecha|date:'Y-m-d' }}">Crear reserva manual</a>
+    <a class="back-link" href="{% url 'staff_hoy' %}">Ver reservas de hoy</a>
+</div>
+<script>
+    const ocupacionFecha = document.getElementById("ocupacion-fecha");
+    if (ocupacionFecha) {
+        ocupacionFecha.addEventListener("change", function () {
+            const partes = this.value.split("-");
+            const fecha = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+            const dia = fecha.getDay();
+            if (dia === 1 || dia === 2) {
+                alert("Baiku cierra lunes y martes.");
+                this.value = "";
+            }
+        });
+    }
+</script>
+{% endblock %}

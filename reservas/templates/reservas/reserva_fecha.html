@@ -1,0 +1,36 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+{% include "reservas/partials/progreso.html" %}
+
+<div class="card">
+    <h2>Fecha</h2>
+
+    <form method="post">
+        {% csrf_token %}
+
+        <div class="field">
+            <label>Elige una fecha</label>
+            <input id="fecha-reserva" type="date" name="fecha" min="{{ hoy|date:'Y-m-d' }}" required>
+        </div>
+
+        <button class="button">Continuar</button>
+    </form>
+
+    <a class="back-link" href="{% url 'reserva_personas' %}">Volver</a>
+</div>
+<script>
+    const fechaReserva = document.getElementById("fecha-reserva");
+    if (fechaReserva) {
+        fechaReserva.addEventListener("change", function () {
+            const partes = this.value.split("-");
+            const fecha = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+            const dia = fecha.getDay();
+            if (dia === 1 || dia === 2) {
+                alert("Baiku cierra lunes y martes.");
+                this.value = "";
+            }
+        });
+    }
+</script>
+{% endblock %}

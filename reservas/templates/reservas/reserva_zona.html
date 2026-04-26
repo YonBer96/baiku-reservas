@@ -1,0 +1,23 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+{% include "reservas/partials/progreso.html" %}
+
+<div class="card">
+    <h2>Zona</h2>
+
+    <form method="post">
+        {% csrf_token %}
+
+        {% for z in zonas %}
+            <button class="option-button" name="zona" value="{{ z.id }}">
+                {{ z.nombre }} · {{ z.plazas_libres }} libres
+            </button>
+        {% empty %}
+            <p class="muted">No hay zonas disponibles para este turno.</p>
+        {% endfor %}
+    </form>
+
+    <a class="back-link" href="{% url 'reserva_turno' %}">Volver</a>
+</div>
+{% endblock %}

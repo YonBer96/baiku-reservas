@@ -1,0 +1,28 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Baiku Reservas</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link rel="stylesheet" href="{% static 'reservas/styles.css' %}">
+</head>
+
+<body>
+    <main class="app">
+        <header class="brand">
+            <a href="{% url 'inicio' %}">
+                <img src="{% static 'reservas/img/logo-baiku.png' %}" alt="Baiku" class="logo">
+            </a>
+            <a class="back-home" href="{% url 'inicio' %}">Volver al inicio</a>
+        </header>
+
+        {% for message in messages %}
+        <div class="message">{{ message }}</div>
+        {% endfor %}
+
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

@@ -1,0 +1,159 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+<div class="card card-animated">
+    <h2>Reserva manual</h2>
+    <p class="helper-text">
+        Primero consulta fecha y personas. Después elige un hueco y toma los datos del cliente.
+    </p>
+
+    <form method="get" class="staff-search">
+        <div class="field">
+            <label>Fecha</label>
+            <input id="staff-fecha" name="fecha" type="date" min="{{ hoy|date:'Y-m-d' }}" value="{{ fecha_txt }}" required>
+        </div>
+
+        <div class="field">
+            <label>Personas</label>
+            <div class="counter-control small" data-min="1" data-max="{{ max_personas }}">
+                <button type="button" class="counter-button" data-action="minus">−</button>
+                <div class="counter-number" id="staff-personas-numero">{{ personas|default:2 }}</div>
+                <button type="button" class="counter-button" data-action="plus">+</button>
+            </div>
+            <input type="hidden" name="personas" id="staff-personas-input" value="{{ personas|default:2 }}">
+        </div>
+
+        <button class="button button-main">Ver huecos</button>
+    </form>
+</div>
+
+{% if motivo_no_reservable %}
+<div class="card card-soft unavailable-card">
+    <h3>Fecha no disponible</h3>
+    <p class="muted">{{ motivo_no_reservable }}</p>
+</div>
+{% endif %}
+
+{% if ocupacion and not motivo_no_reservable %}
+<div class="card card-soft">
+    <h3>Resumen de disponibilidad</h3>
+    <p class="helper-text">Consulta rápida para orientar al cliente antes de tomar los datos.</p>
+
+    {% for turno in ocupacion %}
+        <div class="slot-row">
+            <div>
+                <strong>{{ turno.hora|time:"H:i" }}</strong>
+                <span>{{ turno.total_libre }} plazas disponibles</span>
+            </div>
+            <div class="slot-mini">
+                Barra: {{ turno.barra_libre }} libres · Mesa: {{ turno.mesa_libre }} libres
+            </div>
+        </div>
+    {% empty %}
+        <p class="muted">El restaurante está cerrado esta fecha.</p>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if fecha and personas and not hueco_elegido and not motivo_no_reservable %}
+<div class="card card-animated">
+    <h3>Huecos para {{ personas }} pax</h3>
+
+    {% if turnos %}
+        <div class="slot-list">
+            {% for turno in turnos %}
+                {% for zona in turno.zonas %}
+                    <a class="slot-choice" href="{% url 'staff_nueva_reserva' %}?fecha={{ fecha|date:'Y-m-d' }}&personas={{ personas }}&hora={{ turno.hora|time:'H:i' }}&zona={{ zona.id }}">
+                        <strong>{{ turno.hora|time:"H:i" }}</strong>
+                        <span>{{ zona.nombre }} · {{ zona.plazas_libres }} libres</span>
+                    </a>
+                {% endfor %}
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="muted">No hay huecos para ese número de personas. Prueba otra fecha.</p>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if hueco_elegido %}
+<div class="card card-animated">
+    <h3>Datos del cliente</h3>
+
+    <div class="selected-slot">
+        <strong>{{ hueco_elegido.hora|time:"H:i" }} · {{ hueco_elegido.zona_nombre }}</strong>
+        <span>{{ hueco_elegido.personas }} pax · {{ hueco_elegido.fecha|date:"d/m/Y" }}</span>
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="fecha" value="{{ hueco_elegido.fecha|date:'Y-m-d' }}">
+        <input type="hidden" name="personas" value="{{ hueco_elegido.personas }}">
+        <input type="hidden" name="hora" value="{{ hueco_elegido.hora|time:'H:i' }}">
+        <input type="hidden" name="zona" value="{{ hueco_elegido.zona }}">
+
+        <div class="field compact">
+            <label>Nombre</label>
+            <input name="nombre" required>
+        </div>
+
+        <div class="field compact">
+            <label>Teléfono</label>
+            <input name="telefono" required>
+        </div>
+
+        <div class="field compact">
+            <label>Email opcional</label>
+            <input name="email" type="email">
+        </div>
+
+        <div class="field compact">
+            <label>Notas</label>
+            <textarea name="notas" placeholder="Alergias, comentarios..."></textarea>
+        </div>
+
+        <button class="button">Crear reserva</button>
+    </form>
+</div>
+
+<a class="back-link" href="{% url 'staff_nueva_reserva' %}?fecha={{ hueco_elegido.fecha|date:'Y-m-d' }}&personas={{ hueco_elegido.personas }}">Elegir otro hueco</a>
+{% endif %}
+
+<a class="back-link" href="{% url 'staff_hoy' %}">Volver al panel</a>
+
+<script>
+    const fechaInput = document.getElementById("staff-fecha");
+    if (fechaInput) {
+        fechaInput.addEventListener("change", function () {
+            const partes = this.value.split("-");
+            const fecha = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+            const dia = fecha.getDay();
+            if (dia === 1 || dia === 2) {
+                alert("Baiku cierra lunes y martes.");
+                this.value = "";
+            }
+        });
+    }
+
+    const control = document.querySelector(".staff-search .counter-control");
+    if (control) {
+        const input = document.querySelector("#staff-personas-input");
+        const number = document.querySelector("#staff-personas-numero");
+        const min = parseInt(control.dataset.min, 10);
+        const max = parseInt(control.dataset.max, 10);
+
+        function setValue(value) {
+            const next = Math.min(Math.max(value, min), max);
+            input.value = next;
+            number.textContent = next;
+        }
+
+        control.querySelectorAll(".counter-button").forEach((button) => {
+            button.addEventListener("click", () => {
+                const current = parseInt(input.value, 10);
+                setValue(button.dataset.action === "plus" ? current + 1 : current - 1);
+            });
+        });
+    }
+</script>
+{% endblock %}
