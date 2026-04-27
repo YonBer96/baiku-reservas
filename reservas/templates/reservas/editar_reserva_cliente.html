@@ -1,0 +1,23 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Modificar reserva</h2>
+
+    <form method="post" class="form-vertical">
+        {% csrf_token %}
+
+        <input name="personas" type="number" min="1" max="8" value="{{ reserva.personas }}" required>
+        <input name="fecha" type="date" value="{{ reserva.fecha|date:'Y-m-d' }}" required>
+        <input name="hora" type="time" value="{{ reserva.hora|time:'H:i' }}" required>
+
+        <select name="zona" required>
+            <option value="barra" {% if reserva.zona == "barra" %}selected{% endif %}>Barra</option>
+            <option value="mesa" {% if reserva.zona == "mesa" %}selected{% endif %}>Mesa</option>
+            <option value="completo" {% if reserva.zona == "completo" %}selected{% endif %}>Restaurante completo</option>
+        </select>
+
+        <button class="button">Guardar cambios</button>
+    </form>
+</div>
+{% endblock %}

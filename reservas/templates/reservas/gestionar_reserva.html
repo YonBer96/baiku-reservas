@@ -1,0 +1,40 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Gestionar mi reserva</h2>
+
+    {% if not reservas %}
+    <form method="post" class="form-vertical">
+        {% csrf_token %}
+        <input name="email" type="email" placeholder="Email" required>
+        
+        <input name="telefono" type="text" placeholder="Teléfono" required>
+        
+        <button class="button">Buscar reserva</button>
+    </form>
+    {% endif %}
+
+    {% for reserva in reservas %}
+    <div class="summary">
+        <div><span>Fecha</span><strong>{{ reserva.fecha }}</strong></div>
+        <div><span>Hora</span><strong>{{ reserva.hora }}</strong></div>
+        <div><span>Personas</span><strong>{{ reserva.personas }}</strong></div>
+        <div><span>Zona</span><strong>{{ reserva.get_zona_display }}</strong></div>
+    </div>
+
+    <a class="button" href="{% url 'editar_reserva_cliente' reserva.id %}">Modificar</a>
+
+    <form method="post" action="{% url 'eliminar_reserva_cliente' reserva.id %}">
+        {% csrf_token %}
+        <button class="option-button">Eliminar reserva</button>
+    </form>
+    {% endfor %}
+
+    {% if reservas %}
+    <a class="option-button" href="{% url 'gestionar_reserva' %}">
+        Buscar otra reserva
+    </a>
+    {% endif %}
+</div>
+{% endblock %}

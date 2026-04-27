@@ -524,3 +524,9 @@ textarea {
 .unavailable-card h3 {
     color: #7a2e1f;
 }
+
+.form-vertical {
+    display: flex;
+    flex-direction: column;
+    gap: 12px; 
+}

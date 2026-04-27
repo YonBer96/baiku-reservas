@@ -319,8 +319,7 @@ def enviar_email_confirmacion(reserva):
         f"Hora: {reserva.hora.strftime('%H:%M')}\n"
         f"Personas: {reserva.personas}\n"
         f"Zona: {reserva.get_zona_display()}\n"
-        "Anticipo: 10€ no reembolsables, descontados en restaurante.\n\n"
-        "Gracias,\nBaiku"
+        "Muchas gracias,\nBaiku"
     )
 
     send_mail(
@@ -571,3 +570,93 @@ def staff_nueva_reserva(request):
             "motivo_no_reservable": motivo_no_reservable,
         },
     )
+
+@require_POST
+def confirmar_reserva(request):
+    reserva_data = obtener_reserva_session(request)
+    campos = ["personas", "fecha", "hora", "zona", "nombre", "email", "telefono"]
+
+    if not all(reserva_data.get(campo) for campo in campos):
+        return redirect("reserva_personas")
+
+    fecha = _fecha_desde_texto(reserva_data["fecha"])
+    hora = _hora_desde_texto(reserva_data["hora"])
+    personas = int(reserva_data["personas"])
+    zona = reserva_data["zona"]
+
+    with transaction.atomic():
+        if not hay_disponibilidad(fecha, hora, personas, zona):
+            messages.error(request, "Lo sentimos, esa opción ya no está disponible.")
+            return redirect("reserva_fecha")
+
+        reserva = Reserva.objects.create(
+            nombre=reserva_data["nombre"],
+            email=reserva_data["email"],
+            telefono=reserva_data["telefono"],
+            personas=personas,
+            fecha=fecha,
+            hora=hora,
+            zona=zona,
+            notas=reserva_data.get("notas", ""),
+            importe_anticipo=0,
+            estado="confirmada",
+            expira_en=None,
+        )
+
+    enviar_email_confirmacion(reserva)
+    request.session.pop("reserva", None)
+    return render(request, "reservas/pago_exito.html")
+
+
+def gestionar_reserva(request):
+    reservas = []
+
+    if request.method == "POST":
+        email = request.POST.get("email", "").strip()
+        telefono = request.POST.get("telefono", "").strip()
+
+        reservas = Reserva.objects.filter(
+            email=email,
+            telefono=telefono,
+        ).exclude(
+            estado="cancelada"
+        ).order_by("fecha", "hora")
+
+        if not reservas:
+            messages.error(request, "No hemos encontrado reservas con esos datos.")
+
+    return render(request, "reservas/gestionar_reserva.html", {"reservas": reservas})
+
+
+@require_POST
+def eliminar_reserva_cliente(request, reserva_id):
+    reserva = get_object_or_404(Reserva, id=reserva_id)
+    reserva.estado = "cancelada"
+    reserva.save(update_fields=["estado", "actualizado"])
+    messages.success(request, "Reserva cancelada correctamente.")
+    return redirect("gestionar_reserva")
+
+
+def editar_reserva_cliente(request, reserva_id):
+    reserva = get_object_or_404(Reserva, id=reserva_id)
+
+    if request.method == "POST":
+        personas = int(request.POST.get("personas"))
+        fecha = _fecha_desde_texto(request.POST.get("fecha"))
+        hora = _hora_desde_texto(request.POST.get("hora"))
+        zona = request.POST.get("zona")
+
+        if not hay_disponibilidad(fecha, hora, personas, zona):
+            messages.error(request, "Ese nuevo hueco no está disponible.")
+            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+
+        reserva.personas = personas
+        reserva.fecha = fecha
+        reserva.hora = hora
+        reserva.zona = zona
+        reserva.save(update_fields=["personas", "fecha", "hora", "zona", "actualizado"])
+
+        messages.success(request, "Reserva modificada correctamente.")
+        return redirect("gestionar_reserva")
+
+    return render(request, "reservas/editar_reserva_cliente.html", {"reserva": reserva})

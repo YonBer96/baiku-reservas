@@ -11,16 +11,16 @@
         <div><span>Fecha</span><strong>{{ reserva.fecha }}</strong></div>
         <div><span>Hora</span><strong>{{ reserva.hora }}</strong></div>
         <div><span>Zona</span><strong>{{ reserva.zona_nombre }}</strong></div>
-        <div><span>Anticipo</span><strong>{{ importe_euros }}€</strong></div>
+        
     </div>
 
     <p class="muted">
         El anticipo no es reembolsable y se descontará en el restaurante.
     </p>
 
-    <form method="post" action="{% url 'crear_pago_stripe' %}">
+    <form method="post" action="{% url 'confirmar_reserva' %}">
         {% csrf_token %}
-        <button class="button">Pagar anticipo</button>
+        <button class="button">Confirmar reserva</button>
     </form>
 
     <a class="back-link" href="{% url 'reserva_datos' %}">Volver</a>
