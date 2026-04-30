@@ -7,20 +7,27 @@ from reservas.models import BloqueoDia, Reserva
 
 
 CAPACIDAD_BARRA = 8
-# Dos mesas que pueden unirse para grupos de hasta 6 personas.
-CAPACIDAD_MESA = 6
+# Mesas combinables, pero con un máximo de 4 personas en mesa.
+CAPACIDAD_MESA = 4
 CAPACIDAD_TOTAL = CAPACIDAD_BARRA + CAPACIDAD_MESA
 MAX_PERSONAS_RESERVA = 12
 
 TURNOS_COMIDA = [time(13, 0)]
-TURNOS_CENA = [time(20, 0), time(22, 0)]
+# Turno único de noche: entrada a las 20:00 y servicio hasta las 22:30.
+TURNOS_CENA = [time(20, 0)]
 ESTADOS_QUE_OCUPAN = ["confirmada", "llegado"]
+
+
+def etiqueta_turno(hora):
+    if hora == time(20, 0):
+        return "20:00 - 22:30"
+    return hora.strftime("%H:%M")
 
 
 def obtener_turnos_para_fecha(fecha):
     dia = fecha.weekday()  # lunes=0, domingo=6
 
-    # Cerrado por descanso: lunes y martes.
+    # Cerrado por vacaciones/descanso: lunes y martes.
     if dia in [0, 1]:
         return []
 
@@ -47,18 +54,14 @@ def reservas_que_ocupan():
 
 
 def zona_permitida(personas, zona):
-    # 1-6 personas pueden ir a barra o mesa.
-    if 1 <= personas <= 6:
-        return zona in ["barra", "mesa"]
-
-    # 7-8 personas solo barra.
-    if 7 <= personas <= 8:
-        return zona == "barra"
-
-    # 9-12 personas requieren reservar toda la capacidad disponible.
-    if 9 <= personas <= 12:
-        return zona == "completo"
-
+    # La reserva puede ser de hasta 12 personas en total.
+    # La mesa admite como máximo 4 personas; para 5 o más solo se ofrece barra.
+    if personas < 1 or personas > MAX_PERSONAS_RESERVA:
+        return False
+    if zona == "mesa":
+        return personas <= CAPACIDAD_MESA
+    if zona == "barra":
+        return True
     return False
 
 
@@ -99,6 +102,14 @@ def plazas_disponibles(fecha, hora, zona):
     return max(capacidad_zona(zona) - personas_reservadas(fecha, hora, zona), 0)
 
 
+def plazas_disponibles_para_reserva(fecha, hora, personas, zona):
+    # Para grupos de 5 o más se muestra solo barra, pero la disponibilidad
+    # se calcula contra el aforo total: 8 en barra + 4 en mesa = 12.
+    if zona == "barra" and personas > CAPACIDAD_MESA:
+        return max(CAPACIDAD_TOTAL - total_personas_reservadas(fecha, hora), 0)
+    return plazas_disponibles(fecha, hora, zona)
+
+
 def hay_disponibilidad(fecha, hora, personas, zona):
     if dia_bloqueado(fecha):
         return False
@@ -106,7 +117,7 @@ def hay_disponibilidad(fecha, hora, personas, zona):
         return False
     if not zona_permitida(personas, zona):
         return False
-    return plazas_disponibles(fecha, hora, zona) >= personas
+    return plazas_disponibles_para_reserva(fecha, hora, personas, zona) >= personas
 
 
 def zonas_disponibles(fecha, hora, personas):
@@ -115,13 +126,12 @@ def zonas_disponibles(fecha, hora, personas):
     for zona, nombre in [
         ("barra", "Barra"),
         ("mesa", "Mesa"),
-        ("completo", "Restaurante completo"),
     ]:
         if hay_disponibilidad(fecha, hora, personas, zona):
             zonas.append({
                 "id": zona,
                 "nombre": nombre,
-                "plazas_libres": plazas_disponibles(fecha, hora, zona),
+                "plazas_libres": plazas_disponibles_para_reserva(fecha, hora, personas, zona),
             })
 
     return zonas
@@ -135,7 +145,7 @@ def turnos_disponibles(fecha, personas):
     for hora in obtener_turnos_para_fecha(fecha):
         zonas = zonas_disponibles(fecha, hora, personas)
         if zonas:
-            turnos.append({"hora": hora, "zonas": zonas})
+            turnos.append({"hora": hora, "etiqueta": etiqueta_turno(hora), "zonas": zonas})
 
     return turnos
 
@@ -153,6 +163,7 @@ def mapa_ocupacion(fecha):
 
         turnos.append({
             "hora": hora,
+            "etiqueta": etiqueta_turno(hora),
             "barra_ocupada": barra_ocupada,
             "barra_total": CAPACIDAD_BARRA,
             "barra_libre": max(CAPACIDAD_BARRA - barra_ocupada, 0),

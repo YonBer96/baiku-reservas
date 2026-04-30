@@ -11,13 +11,13 @@
 
         {% for t in turnos %}
             <button class="option-button" name="hora" value="{{ t.hora|time:'H:i' }}">
-                {{ t.hora|time:"H:i" }}
+                {{ t.etiqueta }}
             </button>
         {% empty %}
             <p class="muted">No hay turnos disponibles.</p>
         {% endfor %}
     </form>
 
-    <a class="back-link" href="{% url 'reserva_fecha' %}">Volver</a>
+    <a class="back-link" href="{% url 'reserva_personas' %}">Volver</a>
 </div>
 {% endblock %}

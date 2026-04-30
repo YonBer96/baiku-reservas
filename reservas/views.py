@@ -29,8 +29,8 @@ IMPORTE_ANTICIPO = 1000  # 10€ total por reserva, en céntimos
 MINUTOS_EXPIRACION_PAGO = 15
 
 PASOS_RESERVA = {
-    "personas": {"numero": 1, "total": 6, "titulo": "Personas"},
-    "fecha": {"numero": 2, "total": 6, "titulo": "Fecha"},
+    "fecha": {"numero": 1, "total": 6, "titulo": "Fecha"},
+    "personas": {"numero": 2, "total": 6, "titulo": "Personas"},
     "turno": {"numero": 3, "total": 6, "titulo": "Turno"},
     "zona": {"numero": 4, "total": 6, "titulo": "Zona"},
     "datos": {"numero": 5, "total": 6, "titulo": "Datos"},
@@ -68,7 +68,7 @@ def _zona_nombre(zona):
 def _motivo_fecha_no_reservable(fecha):
     """Devuelve un texto claro si la fecha no se puede reservar."""
     if fecha.weekday() in [0, 1]:
-        return "Baiku cierra lunes y martes."
+        return "Estamos de vacaciones lunes y martes."
 
     bloqueo = BloqueoDia.objects.filter(fecha=fecha).first()
     if bloqueo:
@@ -78,29 +78,8 @@ def _motivo_fecha_no_reservable(fecha):
     return ""
 
 
-def reserva_personas(request):
-    if request.method == "POST":
-        personas = int(request.POST.get("personas", 0))
-
-        if personas < 1 or personas > MAX_PERSONAS_RESERVA:
-            messages.error(request, f"Elige entre 1 y {MAX_PERSONAS_RESERVA} personas.")
-            return redirect("reserva_personas")
-
-        request.session["reserva"] = {"personas": personas}
-        return redirect("reserva_fecha")
-
-    return render(
-        request,
-        "reservas/reserva_personas.html",
-        {"paso": PASOS_RESERVA["personas"], "max_personas": MAX_PERSONAS_RESERVA},
-    )
-
-
 def reserva_fecha(request):
     reserva = obtener_reserva_session(request)
-
-    if not reserva.get("personas"):
-        return redirect("reserva_personas")
 
     if request.method == "POST":
         fecha_txt = request.POST.get("fecha")
@@ -120,13 +99,9 @@ def reserva_fecha(request):
             messages.error(request, motivo_no_reservable)
             return redirect("reserva_fecha")
 
-        turnos = turnos_disponibles(fecha, int(reserva["personas"]))
-        if not turnos:
-            messages.error(request, "No hay turnos disponibles para esa fecha.")
-            return redirect("reserva_fecha")
-
-        guardar_reserva_session(request, {"fecha": fecha_txt})
-        return redirect("reserva_turno")
+        request.session["reserva"] = {"fecha": fecha_txt}
+        request.session.modified = True
+        return redirect("reserva_personas")
 
     return render(
         request,
@@ -135,11 +110,50 @@ def reserva_fecha(request):
     )
 
 
+def reserva_personas(request):
+    reserva = obtener_reserva_session(request)
+
+    if not reserva.get("fecha"):
+        return redirect("reserva_fecha")
+
+    fecha = _fecha_desde_texto(reserva["fecha"])
+    motivo_no_reservable = _motivo_fecha_no_reservable(fecha)
+    if fecha < date.today() or motivo_no_reservable:
+        messages.error(request, motivo_no_reservable or "No puedes reservar una fecha pasada.")
+        return redirect("reserva_fecha")
+
+    if request.method == "POST":
+        try:
+            personas = int(request.POST.get("personas", 0))
+        except (TypeError, ValueError):
+            personas = 0
+
+        if personas < 1 or personas > MAX_PERSONAS_RESERVA:
+            messages.error(request, f"Elige entre 1 y {MAX_PERSONAS_RESERVA} personas.")
+            return redirect("reserva_personas")
+
+        turnos = turnos_disponibles(fecha, personas)
+        if not turnos:
+            messages.error(request, "No hay turnos disponibles para esa fecha y número de personas.")
+            return redirect("reserva_personas")
+
+        guardar_reserva_session(request, {"personas": personas})
+        return redirect("reserva_turno")
+
+    return render(
+        request,
+        "reservas/reserva_personas.html",
+        {"reserva": reserva, "paso": PASOS_RESERVA["personas"], "max_personas": MAX_PERSONAS_RESERVA},
+    )
+
+
 def reserva_turno(request):
     reserva = obtener_reserva_session(request)
 
     if not reserva.get("fecha"):
         return redirect("reserva_fecha")
+    if not reserva.get("personas"):
+        return redirect("reserva_personas")
 
     fecha = _fecha_desde_texto(reserva["fecha"])
     personas = int(reserva["personas"])
@@ -231,7 +245,7 @@ def reserva_resumen(request):
     campos = ["personas", "fecha", "hora", "zona", "nombre", "email", "telefono"]
 
     if not all(reserva.get(campo) for campo in campos):
-        return redirect("reserva_personas")
+        return redirect("reserva_fecha")
 
     reserva["zona_nombre"] = reserva.get("zona_nombre") or _zona_nombre(reserva["zona"])
 
@@ -253,7 +267,7 @@ def crear_pago_stripe(request):
     campos = ["personas", "fecha", "hora", "zona", "nombre", "email", "telefono"]
 
     if not all(reserva_data.get(campo) for campo in campos):
-        return redirect("reserva_personas")
+        return redirect("reserva_fecha")
 
     if not settings.STRIPE_SECRET_KEY:
         messages.error(request, "Stripe no está configurado todavía.")
@@ -577,7 +591,7 @@ def confirmar_reserva(request):
     campos = ["personas", "fecha", "hora", "zona", "nombre", "email", "telefono"]
 
     if not all(reserva_data.get(campo) for campo in campos):
-        return redirect("reserva_personas")
+        return redirect("reserva_fecha")
 
     fecha = _fecha_desde_texto(reserva_data["fecha"])
     hora = _hora_desde_texto(reserva_data["hora"])
@@ -641,10 +655,24 @@ def editar_reserva_cliente(request, reserva_id):
     reserva = get_object_or_404(Reserva, id=reserva_id)
 
     if request.method == "POST":
-        personas = int(request.POST.get("personas"))
-        fecha = _fecha_desde_texto(request.POST.get("fecha"))
-        hora = _hora_desde_texto(request.POST.get("hora"))
+        try:
+            personas = int(request.POST.get("personas", 0))
+            fecha = _fecha_desde_texto(request.POST.get("fecha"))
+            hora = _hora_desde_texto(request.POST.get("hora"))
+        except (TypeError, ValueError):
+            messages.error(request, "Datos de reserva no válidos.")
+            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+
         zona = request.POST.get("zona")
+
+        if personas < 1 or personas > MAX_PERSONAS_RESERVA:
+            messages.error(request, f"Elige entre 1 y {MAX_PERSONAS_RESERVA} personas.")
+            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+
+        motivo_no_reservable = _motivo_fecha_no_reservable(fecha)
+        if fecha < date.today() or motivo_no_reservable:
+            messages.error(request, motivo_no_reservable or "No puedes reservar una fecha pasada.")
+            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
 
         if not hay_disponibilidad(fecha, hora, personas, zona):
             messages.error(request, "Ese nuevo hueco no está disponible.")
@@ -659,4 +687,8 @@ def editar_reserva_cliente(request, reserva_id):
         messages.success(request, "Reserva modificada correctamente.")
         return redirect("gestionar_reserva")
 
-    return render(request, "reservas/editar_reserva_cliente.html", {"reserva": reserva})
+    return render(
+        request,
+        "reservas/editar_reserva_cliente.html",
+        {"reserva": reserva, "max_personas": MAX_PERSONAS_RESERVA, "hoy": date.today()},
+    )

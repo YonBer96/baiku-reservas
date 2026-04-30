@@ -5,7 +5,7 @@
 
 <div class="card card-animated">
     <h2>Personas</h2>
-    <p class="helper-text">Selecciona el número de comensales.</p>
+    <p class="helper-text">Fecha elegida: <strong>{{ reserva.fecha }}</strong>. Selecciona el número de comensales.</p>
 
     <form method="post" class="counter-form">
         {% csrf_token %}
@@ -19,6 +19,7 @@
         <input type="hidden" name="personas" id="personas-input" value="2">
 
         <button class="button button-main">Continuar</button>
+        <a class="back-link" href="{% url 'reserva_fecha' %}">Cambiar fecha</a>
     </form>
 </div>
 
