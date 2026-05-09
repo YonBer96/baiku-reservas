@@ -8,9 +8,9 @@ from reservas.models import BloqueoDia, Reserva
 
 CAPACIDAD_BARRA = 8
 # Mesas combinables, pero con un máximo de 4 personas en mesa.
-CAPACIDAD_MESA = 4
+CAPACIDAD_MESA = 3
 CAPACIDAD_TOTAL = CAPACIDAD_BARRA + CAPACIDAD_MESA
-MAX_PERSONAS_RESERVA = 12
+MAX_PERSONAS_RESERVA = 11
 
 TURNOS_COMIDA = [time(13, 0)]
 # Turno único de noche: entrada a las 20:00 y servicio hasta las 22:30.
