@@ -4,17 +4,19 @@
 {% include "reservas/partials/progreso.html" %}
 
 <div class="card">
-    <h2>Turno</h2>
+    <h2>Servicio</h2>
+    <p class="helper-text">Elige si quieres reservar para comida o cena.</p>
 
     <form method="post">
         {% csrf_token %}
 
-        {% for t in turnos %}
-            <button class="option-button" name="hora" value="{{ t.hora|time:'H:i' }}">
-                {{ t.etiqueta }}
+        {% for servicio in servicios %}
+            <button class="option-button" name="turno" value="{{ servicio.id }}">
+                <strong>{{ servicio.nombre }}</strong><br>
+                <span>{{ servicio.descripcion }}</span>
             </button>
         {% empty %}
-            <p class="muted">No hay turnos disponibles.</p>
+            <p class="muted">No hay servicios disponibles.</p>
         {% endfor %}
     </form>
 

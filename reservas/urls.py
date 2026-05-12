@@ -6,6 +6,7 @@ urlpatterns = [
     path("reservar/personas/", views.reserva_personas, name="reserva_personas"),
     path("reservar/fecha/", views.reserva_fecha, name="reserva_fecha"),
     path("reservar/turno/", views.reserva_turno, name="reserva_turno"),
+    path("reservar/hora/", views.reserva_hora, name="reserva_hora"),
     path("reservar/zona/", views.reserva_zona, name="reserva_zona"),
     path("reservar/datos/", views.reserva_datos, name="reserva_datos"),
     path("reservar/resumen/", views.reserva_resumen, name="reserva_resumen"),
@@ -21,4 +22,5 @@ urlpatterns = [
     path("gestionar-reserva/<int:reserva_id>/eliminar/", views.eliminar_reserva_cliente, name="eliminar_reserva_cliente"),
     path("reservar/confirmar/", views.confirmar_reserva, name="confirmar_reserva"),
     path("staff/reservas-count/",views.staff_reservas_count,name="staff_reservas_count"),
+    
 ]

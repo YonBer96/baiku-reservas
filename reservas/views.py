@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, time
 
 import stripe
 from django.conf import settings
@@ -31,12 +31,13 @@ IMPORTE_ANTICIPO = 1000  # 10€ total por reserva, en céntimos
 MINUTOS_EXPIRACION_PAGO = 15
 
 PASOS_RESERVA = {
-    "fecha": {"numero": 1, "total": 6, "titulo": "Fecha"},
-    "personas": {"numero": 2, "total": 6, "titulo": "Personas"},
-    "turno": {"numero": 3, "total": 6, "titulo": "Turno"},
-    "zona": {"numero": 4, "total": 6, "titulo": "Zona"},
-    "datos": {"numero": 5, "total": 6, "titulo": "Datos"},
-    "resumen": {"numero": 6, "total": 6, "titulo": "Confirmar"},
+    "fecha": {"numero": 1, "total": 7, "titulo": "Fecha"},
+    "personas": {"numero": 2, "total": 7, "titulo": "Personas"},
+    "turno": {"numero": 3, "total": 7, "titulo": "Servicio"},
+    "hora": {"numero": 4, "total": 7, "titulo": "Hora"},
+    "zona": {"numero": 5, "total": 7, "titulo": "Zona"},
+    "datos": {"numero": 6, "total": 7, "titulo": "Datos"},
+    "resumen": {"numero": 7, "total": 7, "titulo": "Confirmar"},
 }
 
 
@@ -161,35 +162,93 @@ def reserva_turno(request):
     personas = int(reserva["personas"])
     turnos = turnos_disponibles(fecha, personas)
 
+    servicios_disponibles = []
+    for turno in turnos:
+        if turno["hora"] == time(13, 0):
+            servicios_disponibles.append({"id": "comida", "nombre": "Comida", "descripcion": "Servicio mediodía"})
+        elif turno["hora"] == time(20, 0):
+            servicios_disponibles.append({"id": "cena", "nombre": "Cena", "descripcion": "Servicio noche"})
+
+    if request.method == "POST":
+        turno_tipo = request.POST.get("turno")
+        servicios_validos = [servicio["id"] for servicio in servicios_disponibles]
+
+        if turno_tipo not in servicios_validos:
+            messages.error(request, "Ese servicio ya no está disponible.")
+            return redirect("reserva_turno")
+
+        reserva.pop("hora", None)
+        reserva.pop("zona", None)
+        reserva.pop("zona_nombre", None)
+        reserva["turno"] = turno_tipo
+        request.session["reserva"] = reserva
+        request.session.modified = True
+        return redirect("reserva_hora")
+
+    return render(
+        request,
+        "reservas/reserva_turno.html",
+        {
+            "reserva": reserva,
+            "servicios": servicios_disponibles,
+            "paso": PASOS_RESERVA["turno"],
+        },
+    )
+
+
+def reserva_hora(request):
+    reserva = obtener_reserva_session(request)
+
+    if not reserva.get("fecha"):
+        return redirect("reserva_fecha")
+    if not reserva.get("personas"):
+        return redirect("reserva_personas")
+    if not reserva.get("turno"):
+        return redirect("reserva_turno")
+
+    fecha = _fecha_desde_texto(reserva["fecha"])
+    personas = int(reserva["personas"])
+    turno_tipo = reserva["turno"]
+    horas = horas_llegada_para_turno(turno_tipo)
+
     if request.method == "POST":
         hora_txt = request.POST.get("hora")
 
         try:
             hora = _hora_desde_texto(hora_txt)
         except (TypeError, ValueError):
-            messages.error(request, "Turno no válido.")
-            return redirect("reserva_turno")
+            messages.error(request, "Hora no válida.")
+            return redirect("reserva_hora")
 
-        horas_validas = [t["hora"] for t in turnos]
-        if hora not in horas_validas:
-            messages.error(request, "Ese turno ya no está disponible.")
-            return redirect("reserva_turno")
+        if hora not in horas:
+            messages.error(request, "Esa hora no pertenece al servicio elegido.")
+            return redirect("reserva_hora")
+
+        if not zonas_disponibles(fecha, hora, personas):
+            messages.error(request, "No hay disponibilidad para esa hora.")
+            return redirect("reserva_hora")
 
         guardar_reserva_session(request, {"hora": hora_txt})
         return redirect("reserva_zona")
 
     return render(
         request,
-        "reservas/reserva_turno.html",
-        {"reserva": reserva, "turnos": turnos, "paso": PASOS_RESERVA["turno"]},
+        "reservas/reserva_hora.html",
+        {
+            "reserva": reserva,
+            "horas": horas,
+            "turno": turno_tipo,
+            "paso": PASOS_RESERVA["hora"],
+        },
     )
-
 
 def reserva_zona(request):
     reserva = obtener_reserva_session(request)
 
-    if not reserva.get("hora"):
+    if not reserva.get("turno"):
         return redirect("reserva_turno")
+    if not reserva.get("hora"):
+        return redirect("reserva_hora")
 
     fecha = _fecha_desde_texto(reserva["fecha"])
     hora = _hora_desde_texto(reserva["hora"])
@@ -546,6 +605,7 @@ def staff_nueva_reserva(request):
     hora = None
     turnos = []
     horas_llegada = []
+    zonas_staff = []
     hueco_elegido = None
     motivo_no_reservable = ""
 
@@ -582,6 +642,9 @@ def staff_nueva_reserva(request):
         except (TypeError, ValueError):
             messages.error(request, "Hora no válida.")
             hora = None
+
+    if fecha and personas and hora:
+        zonas_staff = zonas_disponibles(fecha, hora, personas)
 
     if fecha and personas and hora and zona:
         if hay_disponibilidad(fecha, hora, personas, zona):
@@ -652,6 +715,7 @@ def staff_nueva_reserva(request):
             "turno_tipo": turno_tipo,
             "horas_llegada": horas_llegada,
             "hora": hora,
+            "zonas_staff": zonas_staff,
             "hoy": date.today(),
             "hueco_elegido": hueco_elegido,
             "motivo_no_reservable": motivo_no_reservable,

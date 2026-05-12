@@ -1,0 +1,29 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+{% include "reservas/partials/progreso.html" %}
+
+<div class="card">
+    <h2>Hora de llegada</h2>
+    <p class="helper-text">Selecciona la hora exacta a la que llegará el cliente.</p>
+
+    <form method="post">
+        {% csrf_token %}
+
+        <div class="field compact">
+            <label>Hora</label>
+            <select name="hora" required>
+                {% for h in horas %}
+                    <option value="{{ h|time:'H:i' }}">{{ h|time:"H:i" }}</option>
+                {% empty %}
+                    <option value="">No hay horas disponibles</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <button class="button button-main">Continuar</button>
+    </form>
+
+    <a class="back-link" href="{% url 'reserva_turno' %}">Volver</a>
+</div>
+{% endblock %}
