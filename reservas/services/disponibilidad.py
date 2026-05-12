@@ -1,4 +1,4 @@
-from datetime import time
+from datetime import time,timedelta,datetime,date
 
 from django.db.models import Sum
 from django.utils import timezone
@@ -79,12 +79,34 @@ def _total_queryset(qs):
     return qs.aggregate(total=Sum("personas")).get("total") or 0
 
 
+def _rango_periodo(hora):
+    periodo = periodo_de_hora(hora)
+
+    if periodo == "comida":
+        return time(13, 0), time(16, 0)
+
+    if periodo == "cena":
+        return time(20, 0), time(22, 30)
+
+    return hora, hora
+
+
+def reservas_del_mismo_periodo(fecha, hora):
+    inicio, fin = _rango_periodo(hora)
+
+    return reservas_que_ocupan().filter(
+        fecha=fecha,
+        hora__gte=inicio,
+        hora__lte=fin,
+    )
+
+
 def total_personas_reservadas(fecha, hora):
-    return _total_queryset(reservas_que_ocupan().filter(fecha=fecha, hora=hora))
+    return _total_queryset(reservas_del_mismo_periodo(fecha, hora))
 
 
 def personas_reservadas(fecha, hora, zona):
-    qs = reservas_que_ocupan().filter(fecha=fecha, hora=hora)
+    qs = reservas_del_mismo_periodo(fecha, hora)
 
     if zona == "completo":
         return _total_queryset(qs)
@@ -109,14 +131,25 @@ def plazas_disponibles_para_reserva(fecha, hora, personas, zona):
         return max(CAPACIDAD_TOTAL - total_personas_reservadas(fecha, hora), 0)
     return plazas_disponibles(fecha, hora, zona)
 
-
 def hay_disponibilidad(fecha, hora, personas, zona):
     if dia_bloqueado(fecha):
         return False
-    if hora not in obtener_turnos_para_fecha(fecha):
+
+    periodo = periodo_de_hora(hora)
+    turnos_fecha = obtener_turnos_para_fecha(fecha)
+
+    if periodo == "comida" and time(13, 0) not in turnos_fecha:
         return False
+
+    if periodo == "cena" and time(20, 0) not in turnos_fecha:
+        return False
+
+    if not periodo:
+        return False
+
     if not zona_permitida(personas, zona):
         return False
+
     return plazas_disponibles_para_reserva(fecha, hora, personas, zona) >= personas
 
 
@@ -175,3 +208,32 @@ def mapa_ocupacion(fecha):
             "total_libre": max(CAPACIDAD_TOTAL - total_ocupado, 0),
         })
     return turnos
+
+
+def periodo_de_hora(hora):
+    if time(13, 0) <= hora <= time(16, 0):
+        return "comida"
+    if time(20, 0) <= hora <= time(22, 30):
+        return "cena"
+    return None
+
+
+def horas_llegada_para_turno(turno):
+    if turno == "comida":
+        inicio = time(13, 0)
+        fin = time(15, 30)
+    elif turno == "cena":
+        inicio = time(20, 0)
+        fin = time(22, 30)
+    else:
+        return []
+
+    horas = []
+    actual = datetime.combine(date.today(), inicio)
+    limite = datetime.combine(date.today(), fin)
+
+    while actual <= limite:
+        horas.append(actual.time())
+        actual += timedelta(minutes=15)
+
+    return horas

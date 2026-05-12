@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+from django.http import JsonResponse
 
 from .models import BloqueoDia, Reserva
 from .services.disponibilidad import (
@@ -22,6 +23,7 @@ from .services.disponibilidad import (
     mapa_ocupacion,
     turnos_disponibles,
     zonas_disponibles,
+    horas_llegada_para_turno,
 )
 
 
@@ -326,14 +328,21 @@ def crear_pago_stripe(request):
 
 def enviar_email_confirmacion(reserva):
     asunto = "Reserva confirmada en Baiku"
+
+    enlace = f"{settings.SITE_URL}/gestionar-reserva/"
+
     mensaje = (
         f"Hola {reserva.nombre},\n\n"
-        "Tu reserva en Baiku está confirmada.\n\n"
+        "Tu reserva en Baiku ha sido confirmada.\n\n"
+        "DETALLES DE LA RESERVA\n"
         f"Fecha: {reserva.fecha.strftime('%d/%m/%Y')}\n"
         f"Hora: {reserva.hora.strftime('%H:%M')}\n"
         f"Personas: {reserva.personas}\n"
-        f"Zona: {reserva.get_zona_display()}\n"
-        "Muchas gracias,\nBaiku"
+        f"Zona: {reserva.get_zona_display()}\n\n"
+        "Puedes gestionar o cancelar tu reserva desde:\n"
+        f"{enlace}\n\n"
+        "Muchas gracias,\n"
+        "Baiku"
     )
 
     send_mail(
@@ -341,9 +350,35 @@ def enviar_email_confirmacion(reserva):
         mensaje,
         settings.DEFAULT_FROM_EMAIL,
         [reserva.email],
-        fail_silently=True,
+        fail_silently=False,
     )
 
+def enviar_email_modificacion(reserva):
+    asunto = "Tu reserva en Baiku ha sido modificada"
+
+    enlace = f"{settings.SITE_URL}/gestionar-reserva/"
+
+    mensaje = (
+        f"Hola {reserva.nombre},\n\n"
+        "Tu reserva ha sido modificada correctamente.\n\n"
+        "NUEVOS DATOS\n"
+        f"Fecha: {reserva.fecha.strftime('%d/%m/%Y')}\n"
+        f"Hora: {reserva.hora.strftime('%H:%M')}\n"
+        f"Personas: {reserva.personas}\n"
+        f"Zona: {reserva.get_zona_display()}\n\n"
+        "Puedes volver a gestionarla desde:\n"
+        f"{enlace}\n\n"
+        "Gracias,\n"
+        "Baiku"
+    )
+
+    send_mail(
+        asunto,
+        mensaje,
+        settings.DEFAULT_FROM_EMAIL,
+        [reserva.email],
+        fail_silently=False,
+    )
 
 @csrf_exempt
 def stripe_webhook(request):
@@ -399,15 +434,37 @@ def pago_cancelado(request):
 
 @login_required
 def staff_hoy(request):
-    hoy = date.today()
-    reservas = Reserva.objects.filter(fecha=hoy).order_by("hora", "zona", "nombre")
-    turnos = {}
+    fecha_txt = request.GET.get("fecha")
 
-    for reserva in reservas:
-        key = reserva.hora.strftime("%H:%M")
-        turnos.setdefault(key, []).append(reserva)
+    if fecha_txt:
+        try:
+            fecha = _fecha_desde_texto(fecha_txt)
+        except ValueError:
+            messages.error(request, "Fecha no válida.")
+            fecha = date.today()
+    else:
+        fecha = date.today()
 
-    return render(request, "reservas/staff_hoy.html", {"turnos": turnos, "hoy": hoy})
+    reservas = (
+        Reserva.objects
+        .filter(fecha=fecha)
+        .exclude(estado="cancelada")
+        .order_by("hora", "zona", "nombre")
+    )
+
+    total_personas = sum(r.personas for r in reservas)
+
+    context = {
+        "fecha": fecha,
+        "fecha_anterior": fecha - timedelta(days=1),
+        "fecha_siguiente": fecha + timedelta(days=1),
+        "reservas": reservas,
+        "total_reservas": reservas.count(),
+        "total_personas": total_personas,
+        "hoy": date.today(),
+    }
+
+    return render(request, "reservas/staff_hoy.html", context)
 
 
 @login_required
@@ -470,13 +527,17 @@ def bloquear_dia(request):
 
 @login_required
 def staff_nueva_reserva(request):
-    """Reserva manual en 2 pasos reales para staff.
-
-    1) Fecha + personas -> muestra huecos disponibles.
-    2) El staff elige un hueco -> solo entonces toma los datos.
+    """Reserva manual staff:
+    1) Fecha
+    2) Personas
+    3) Servicio: comida/cena
+    4) Hora exacta de llegada
+    5) Zona
+    6) Datos cliente
     """
     fecha_txt = request.GET.get("fecha") or request.POST.get("fecha") or ""
     personas_txt = request.GET.get("personas") or request.POST.get("personas") or ""
+    turno_tipo = request.GET.get("turno") or request.POST.get("turno") or ""
     hora_txt = request.GET.get("hora") or request.POST.get("hora") or ""
     zona = request.GET.get("zona") or request.POST.get("zona") or ""
 
@@ -484,7 +545,7 @@ def staff_nueva_reserva(request):
     personas = None
     hora = None
     turnos = []
-    ocupacion = []
+    horas_llegada = []
     hueco_elegido = None
     motivo_no_reservable = ""
 
@@ -492,7 +553,6 @@ def staff_nueva_reserva(request):
         try:
             fecha = _fecha_desde_texto(fecha_txt)
             motivo_no_reservable = _motivo_fecha_no_reservable(fecha)
-            ocupacion = [] if motivo_no_reservable else mapa_ocupacion(fecha)
         except (TypeError, ValueError):
             messages.error(request, "Fecha no válida.")
             fecha = None
@@ -513,6 +573,9 @@ def staff_nueva_reserva(request):
         else:
             turnos = turnos_disponibles(fecha, personas)
 
+    if turno_tipo:
+        horas_llegada = horas_llegada_para_turno(turno_tipo)
+
     if hora_txt:
         try:
             hora = _hora_desde_texto(hora_txt)
@@ -525,13 +588,16 @@ def staff_nueva_reserva(request):
             hueco_elegido = {
                 "fecha": fecha,
                 "personas": personas,
+                "turno_tipo": turno_tipo,
                 "hora": hora,
                 "zona": zona,
                 "zona_nombre": _zona_nombre(zona),
             }
         else:
             messages.error(request, "Ese hueco ya no está disponible. Elige otro.")
-            return redirect(f"/staff/nueva-reserva/?fecha={fecha_txt}&personas={personas}")
+            return redirect(
+                f"/staff/nueva-reserva/?fecha={fecha_txt}&personas={personas}&turno={turno_tipo}"
+            )
 
     if request.method == "POST":
         nombre = request.POST.get("nombre", "").strip()
@@ -546,14 +612,16 @@ def staff_nueva_reserva(request):
         if not nombre or not telefono:
             messages.error(request, "Completa nombre y teléfono.")
             return redirect(
-                f"/staff/nueva-reserva/?fecha={fecha_txt}&personas={personas}&hora={hora_txt}&zona={zona}"
+                f"/staff/nueva-reserva/?fecha={fecha_txt}&personas={personas}&turno={turno_tipo}&hora={hora_txt}&zona={zona}"
             )
 
         if not hay_disponibilidad(fecha, hora, personas, zona):
             messages.error(request, "Ese hueco ya no está disponible. Prueba otro turno.")
-            return redirect(f"/staff/nueva-reserva/?fecha={fecha_txt}&personas={personas}")
+            return redirect(
+                f"/staff/nueva-reserva/?fecha={fecha_txt}&personas={personas}&turno={turno_tipo}"
+            )
 
-        Reserva.objects.create(
+        reserva = Reserva.objects.create(
             nombre=nombre,
             email=email,
             telefono=telefono,
@@ -565,6 +633,9 @@ def staff_nueva_reserva(request):
             estado="confirmada",
             importe_anticipo=0,
         )
+
+        if reserva.email and reserva.email != "staff@baiku.local":
+            enviar_email_confirmacion(reserva)
 
         messages.success(request, "Reserva manual creada correctamente.")
         return redirect("staff_hoy")
@@ -578,7 +649,9 @@ def staff_nueva_reserva(request):
             "fecha_txt": fecha_txt,
             "personas": personas,
             "turnos": turnos,
-            "ocupacion": ocupacion,
+            "turno_tipo": turno_tipo,
+            "horas_llegada": horas_llegada,
+            "hora": hora,
             "hoy": date.today(),
             "hueco_elegido": hueco_elegido,
             "motivo_no_reservable": motivo_no_reservable,
@@ -683,7 +756,7 @@ def editar_reserva_cliente(request, reserva_id):
         reserva.hora = hora
         reserva.zona = zona
         reserva.save(update_fields=["personas", "fecha", "hora", "zona", "actualizado"])
-
+        enviar_email_modificacion(reserva)
         messages.success(request, "Reserva modificada correctamente.")
         return redirect("gestionar_reserva")
 
@@ -692,3 +765,16 @@ def editar_reserva_cliente(request, reserva_id):
         "reservas/editar_reserva_cliente.html",
         {"reserva": reserva, "max_personas": MAX_PERSONAS_RESERVA, "hoy": date.today()},
     )
+
+@login_required
+def staff_reservas_count(request):
+    fecha = date.today()
+
+    total = (
+        Reserva.objects
+        .filter(fecha=fecha)
+        .exclude(estado="cancelada")
+        .count()
+    )
+
+    return JsonResponse({"total": total})

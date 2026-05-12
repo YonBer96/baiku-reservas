@@ -1,11 +1,10 @@
 {% extends "reservas/base.html" %}
 
 {% block content %}
+
 <div class="card card-animated">
     <h2>Reserva manual</h2>
-    <p class="helper-text">
-        Elija su fecha de reserva, lunes y martés cerramos por descanso del personal.
-    </p>
+    <p class="helper-text">Crea una reserva manual para un cliente.</p>
 
     {% if not fecha or motivo_no_reservable %}
     <form method="get" class="staff-search">
@@ -16,7 +15,9 @@
 
         <button class="button button-main">Continuar</button>
     </form>
-    {% else %}
+    {% endif %}
+
+    {% if fecha and not personas and not motivo_no_reservable %}
     <form method="get" class="staff-search">
         <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
 
@@ -29,17 +30,18 @@
             <label>Personas</label>
             <div class="counter-control small" data-min="1" data-max="{{ max_personas }}">
                 <button type="button" class="counter-button" data-action="minus">−</button>
-                <div class="counter-number" id="staff-personas-numero">{{ personas|default:2 }}</div>
+                <div class="counter-number" id="staff-personas-numero">2</div>
                 <button type="button" class="counter-button" data-action="plus">+</button>
             </div>
-            <input type="hidden" name="personas" id="staff-personas-input" value="{{ personas|default:2 }}">
+            <input type="hidden" name="personas" id="staff-personas-input" value="2">
         </div>
 
-        <button class="button button-main">Ver huecos</button>
+        <button class="button button-main">Continuar</button>
         <a class="back-link" href="{% url 'staff_nueva_reserva' %}">Cambiar fecha</a>
     </form>
     {% endif %}
 </div>
+
 {% if motivo_no_reservable %}
 <div class="card card-soft unavailable-card">
     <h3>Fecha no disponible</h3>
@@ -47,45 +49,92 @@
 </div>
 {% endif %}
 
-{% if ocupacion and not motivo_no_reservable %}
-<div class="card card-soft">
-    <h3>Resumen de disponibilidad</h3>
-    <p class="helper-text">Consulta rápida para orientar al cliente antes de tomar los datos.</p>
+{% if fecha and personas and not turno_tipo and not motivo_no_reservable %}
+<div class="card card-animated">
+    <h3>Selecciona servicio</h3>
 
-    {% for turno in ocupacion %}
-        <div class="slot-row">
-            <div>
-                <strong>{{ turno.etiqueta }}</strong>
-                <span>{{ turno.total_libre }} plazas disponibles</span>
-            </div>
-            <div class="slot-mini">
-                Barra: {{ turno.barra_libre }} libres · Mesa: {{ turno.mesa_libre }} libres
-            </div>
-        </div>
-    {% empty %}
-        <p class="muted">El restaurante está cerrado esta fecha.</p>
-    {% endfor %}
+    <div class="slot-list">
+        {% for turno in turnos %}
+        {% if turno.hora|time:"H:i" == "13:00" %}
+        <a class="slot-choice"
+           href="{% url 'staff_nueva_reserva' %}?fecha={{ fecha|date:'Y-m-d' }}&personas={{ personas }}&turno=comida">
+            <strong>Comida</strong>
+            <span>Servicio mediodía</span>
+        </a>
+        {% endif %}
+
+        {% if turno.hora|time:"H:i" == "20:00" %}
+        <a class="slot-choice"
+           href="{% url 'staff_nueva_reserva' %}?fecha={{ fecha|date:'Y-m-d' }}&personas={{ personas }}&turno=cena">
+            <strong>Cena</strong>
+            <span>Servicio noche</span>
+        </a>
+        {% endif %}
+        {% empty %}
+        <p class="muted">No hay servicios disponibles para esa fecha.</p>
+        {% endfor %}
+    </div>
+
+    <a class="back-link" href="{% url 'staff_nueva_reserva' %}?fecha={{ fecha|date:'Y-m-d' }}">
+        Cambiar personas
+    </a>
 </div>
 {% endif %}
 
-{% if fecha and personas and not hueco_elegido and not motivo_no_reservable %}
+{% if turno_tipo and not hora and not hueco_elegido %}
 <div class="card card-animated">
-    <h3>Huecos para {{ personas }} pax</h3>
+    <h3>Hora de llegada</h3>
 
-    {% if turnos %}
-        <div class="slot-list">
-            {% for turno in turnos %}
-                {% for zona in turno.zonas %}
-                    <a class="slot-choice" href="{% url 'staff_nueva_reserva' %}?fecha={{ fecha|date:'Y-m-d' }}&personas={{ personas }}&hora={{ turno.hora|time:'H:i' }}&zona={{ zona.id }}">
-                        <strong>{{ turno.etiqueta }}</strong>
-                        <span>{{ zona.nombre }} · {{ zona.plazas_libres }} libres</span>
-                    </a>
+    <form method="get">
+        <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
+        <input type="hidden" name="personas" value="{{ personas }}">
+        <input type="hidden" name="turno" value="{{ turno_tipo }}">
+
+        <div class="field compact">
+            <label>Selecciona la hora</label>
+
+            <select name="hora" required>
+                {% for h in horas_llegada %}
+                <option value="{{ h|time:'H:i' }}">{{ h|time:"H:i" }}</option>
                 {% endfor %}
-            {% endfor %}
+            </select>
         </div>
-    {% else %}
-        <p class="muted">No hay huecos para ese número de personas. Prueba otra fecha.</p>
-    {% endif %}
+
+        <button class="button button-main">Continuar</button>
+
+        <a class="back-link" href="{% url 'staff_nueva_reserva' %}?fecha={{ fecha|date:'Y-m-d' }}&personas={{ personas }}">
+            Cambiar servicio
+        </a>
+    </form>
+</div>
+{% endif %}
+
+{% if turno_tipo and hora and not hueco_elegido %}
+<div class="card card-animated">
+    <h3>Zona</h3>
+
+    <div class="selected-slot">
+        <strong>{{ hora|time:"H:i" }}</strong>
+        <span>{{ personas }} pax · {{ fecha|date:"d/m/Y" }}</span>
+    </div>
+
+    <div class="slot-list">
+        {% for turno in turnos %}
+        {% for zona in turno.zonas %}
+        <a class="slot-choice"
+           href="{% url 'staff_nueva_reserva' %}?fecha={{ fecha|date:'Y-m-d' }}&personas={{ personas }}&turno={{ turno_tipo }}&hora={{ hora|time:'H:i' }}&zona={{ zona.id }}">
+            <strong>{{ zona.nombre }}</strong>
+            <span>{{ zona.plazas_libres }} libres</span>
+        </a>
+        {% endfor %}
+        {% empty %}
+        <p class="muted">No hay zonas disponibles.</p>
+        {% endfor %}
+    </div>
+
+    <a class="back-link" href="{% url 'staff_nueva_reserva' %}?fecha={{ fecha|date:'Y-m-d' }}&personas={{ personas }}&turno={{ turno_tipo }}">
+        Cambiar hora
+    </a>
 </div>
 {% endif %}
 
@@ -102,6 +151,7 @@
         {% csrf_token %}
         <input type="hidden" name="fecha" value="{{ hueco_elegido.fecha|date:'Y-m-d' }}">
         <input type="hidden" name="personas" value="{{ hueco_elegido.personas }}">
+        <input type="hidden" name="turno" value="{{ hueco_elegido.turno_tipo }}">
         <input type="hidden" name="hora" value="{{ hueco_elegido.hora|time:'H:i' }}">
         <input type="hidden" name="zona" value="{{ hueco_elegido.zona }}">
 
@@ -129,7 +179,9 @@
     </form>
 </div>
 
-<a class="back-link" href="{% url 'staff_nueva_reserva' %}?fecha={{ hueco_elegido.fecha|date:'Y-m-d' }}&personas={{ hueco_elegido.personas }}">Elegir otro hueco</a>
+<a class="back-link" href="{% url 'staff_nueva_reserva' %}?fecha={{ hueco_elegido.fecha|date:'Y-m-d' }}&personas={{ hueco_elegido.personas }}&turno={{ hueco_elegido.turno_tipo }}">
+    Elegir otro hueco
+</a>
 {% endif %}
 
 <a class="back-link" href="{% url 'staff_hoy' %}">Volver al panel</a>
@@ -169,4 +221,5 @@
         });
     }
 </script>
+
 {% endblock %}

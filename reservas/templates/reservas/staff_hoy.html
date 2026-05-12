@@ -1,23 +1,39 @@
 {% extends "reservas/base.html" %}
 
 {% block content %}
+
 <div class="card">
-    <h2>Hoy {{ hoy|date:"d/m/Y" }}</h2>
+    <h2>
+        Reservas {{ fecha|date:"l d/m/Y" }}
+    </h2>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:15px 0;">
+        <a class="option-button" href="?fecha={{ fecha_anterior|date:'Y-m-d' }}">← Día anterior</a>
+        <a class="button" href="{% url 'staff_hoy' %}">Hoy</a>
+        <a class="option-button" href="?fecha={{ fecha_siguiente|date:'Y-m-d' }}">Día siguiente →</a>
+    </div>
+
+    <p>
+        <strong>Total reservas:</strong> {{ total_reservas }}<br>
+        <strong>Total personas:</strong> {{ total_personas }}
+    </p>
 
     <a class="button" href="{% url 'staff_nueva_reserva' %}">Crear reserva manual</a>
     <br>
     <a class="option-button" href="{% url 'staff_ocupacion' %}">Ver ocupación</a>
 </div>
 
-{% for hora, reservas in turnos.items %}
-<div class="card">
-    <h3>{{ hora }}</h3>
+{% regroup reservas by hora as reservas_por_hora %}
 
-    {% for r in reservas %}
+{% for grupo in reservas_por_hora %}
+<div class="card">
+    <h3>{{ grupo.grouper|time:"H:i" }}</h3>
+
+    {% for r in grupo.list %}
     <div class="reserva-item">
         <div class="reserva-info">
             <strong>{{ r.nombre }}</strong><br>
-            {{ r.personas }} pax · {{ r.get_zona_display }}<br>
+            {{ r.personas }} pax · {{ r.get_zona_display }} · {{ r.telefono }}<br>
             <span class="muted">{{ r.estado }}</span>
         </div>
 
@@ -34,7 +50,31 @@
 </div>
 {% empty %}
 <div class="card">
-    <p class="muted">No hay reservas hoy.</p>
+    <p class="muted">No hay reservas para esta fecha.</p>
 </div>
 {% endfor %}
+{% if fecha == hoy %}
+<script>
+let reservasActuales = {{ total_reservas }};
+
+async function comprobarReservas() {
+    try {
+        const response = await fetch("{% url 'staff_reservas_count' %}");
+        const data = await response.json();
+
+        if (data.total > reservasActuales) {
+            alert("🔔 Nueva reserva recibida");
+            location.reload();
+        }
+
+        reservasActuales = data.total;
+    } catch (error) {
+        console.log("Error comprobando reservas");
+    }
+}
+
+setInterval(comprobarReservas, 20000);
+</script>
+{% endif %}
+
 {% endblock %}
