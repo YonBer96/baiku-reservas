@@ -108,7 +108,6 @@
     </form>
 </div>
 {% endif %}
-
 {% if turno_tipo and hora and not hueco_elegido %}
 <div class="card card-animated">
     <h3>Zona</h3>
@@ -119,14 +118,12 @@
     </div>
 
     <div class="slot-list">
-        {% for turno in turnos %}
-        {% for zona in turno.zonas %}
+        {% for zona in zonas_staff %}
         <a class="slot-choice"
            href="{% url 'staff_nueva_reserva' %}?fecha={{ fecha|date:'Y-m-d' }}&personas={{ personas }}&turno={{ turno_tipo }}&hora={{ hora|time:'H:i' }}&zona={{ zona.id }}">
             <strong>{{ zona.nombre }}</strong>
             <span>{{ zona.plazas_libres }} libres</span>
         </a>
-        {% endfor %}
         {% empty %}
         <p class="muted">No hay zonas disponibles.</p>
         {% endfor %}
