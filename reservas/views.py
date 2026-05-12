@@ -1,3 +1,4 @@
+from ast import Try, TryStar
 from datetime import date, datetime, timedelta, time
 
 import stripe
@@ -754,7 +755,11 @@ def confirmar_reserva(request):
             expira_en=None,
         )
 
-    enviar_email_confirmacion(reserva)
+    try:
+        enviar_email_confirmacion(reserva)
+    except Exception as e:
+        print("error en el correo")
+
     request.session.pop("reserva", None)
     return render(request, "reservas/pago_exito.html")
 
