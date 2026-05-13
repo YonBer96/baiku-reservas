@@ -1,5 +1,6 @@
-from ast import Try, TryStar
 from datetime import date, datetime, timedelta, time
+
+import logging
 
 import stripe
 from django.conf import settings
@@ -7,12 +8,11 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.mail import send_mail
 from django.db import transaction
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from django.http import JsonResponse
 
 from .models import BloqueoDia, Reserva
 from .services.disponibilidad import (
@@ -30,6 +30,7 @@ from .services.disponibilidad import (
 
 IMPORTE_ANTICIPO = 1000  # 10€ total por reserva, en céntimos
 MINUTOS_EXPIRACION_PAGO = 15
+logger = logging.getLogger(__name__)
 
 PASOS_RESERVA = {
     "fecha": {"numero": 1, "total": 7, "titulo": "Fecha"},
@@ -67,6 +68,19 @@ def _hora_desde_texto(hora_txt):
 
 def _zona_nombre(zona):
     return dict(Reserva.ZONA_CHOICES).get(zona, zona)
+
+
+def _enviar_email_seguro(funcion_email, reserva):
+    """Envía email sin romper la reserva si Gmail/SMTP falla."""
+    if not reserva.email or reserva.email == "staff@baiku.local":
+        return False
+
+    try:
+        funcion_email(reserva)
+        return True
+    except Exception as exc:
+        logger.exception("Error enviando email para la reserva %s: %s", reserva.id, exc)
+        return False
 
 
 def _motivo_fecha_no_reservable(fecha):
@@ -389,7 +403,7 @@ def crear_pago_stripe(request):
 def enviar_email_confirmacion(reserva):
     asunto = "Reserva confirmada en Baiku"
 
-    enlace = f"{settings.SITE_URL}/gestionar-reserva/"
+    enlace = "https://baiku-reservas.onrender.com/gestionar-reserva/"
 
     mensaje = (
         f"Hola {reserva.nombre},\n\n"
@@ -416,7 +430,7 @@ def enviar_email_confirmacion(reserva):
 def enviar_email_modificacion(reserva):
     asunto = "Tu reserva en Baiku ha sido modificada"
 
-    enlace = f"{settings.SITE_URL}/gestionar-reserva/"
+    enlace = "https://baiku-reservas.onrender.com/gestionar-reserva/"
 
     mensaje = (
         f"Hola {reserva.nombre},\n\n"
@@ -460,7 +474,7 @@ def stripe_webhook(request):
             reserva.stripe_session_id = session["id"]
             reserva.expira_en = None
             reserva.save(update_fields=["estado", "stripe_session_id", "expira_en", "actualizado"])
-            enviar_email_confirmacion(reserva)
+            _enviar_email_seguro(enviar_email_confirmacion, reserva)
 
     return HttpResponse(status=200)
 
@@ -480,7 +494,7 @@ def pago_exito(request):
                 reserva.stripe_session_id = session.id
                 reserva.expira_en = None
                 reserva.save(update_fields=["estado", "stripe_session_id", "expira_en", "actualizado"])
-                enviar_email_confirmacion(reserva)
+                _enviar_email_seguro(enviar_email_confirmacion, reserva)
         except Exception:
             messages.warning(request, "Pago recibido. Si no recibes el email, contacta con Baiku.")
 
@@ -698,8 +712,7 @@ def staff_nueva_reserva(request):
             importe_anticipo=0,
         )
 
-        if reserva.email and reserva.email != "staff@baiku.local":
-            enviar_email_confirmacion(reserva)
+        _enviar_email_seguro(enviar_email_confirmacion, reserva)
 
         messages.success(request, "Reserva manual creada correctamente.")
         return redirect("staff_hoy")
@@ -755,10 +768,7 @@ def confirmar_reserva(request):
             expira_en=None,
         )
 
-    try:
-        enviar_email_confirmacion(reserva)
-    except Exception as e:
-        print("error en el correo")
+    _enviar_email_seguro(enviar_email_confirmacion, reserva)
 
     request.session.pop("reserva", None)
     return render(request, "reservas/pago_exito.html")
@@ -825,7 +835,7 @@ def editar_reserva_cliente(request, reserva_id):
         reserva.hora = hora
         reserva.zona = zona
         reserva.save(update_fields=["personas", "fecha", "hora", "zona", "actualizado"])
-        enviar_email_modificacion(reserva)
+        _enviar_email_seguro(enviar_email_modificacion, reserva)
         messages.success(request, "Reserva modificada correctamente.")
         return redirect("gestionar_reserva")
 
