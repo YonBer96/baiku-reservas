@@ -530,3 +530,19 @@ textarea {
     flex-direction: column;
     gap: 12px; 
 }
+
+.info-email {
+    margin-top: 18px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: #f5f2ed;
+    border: 1px solid #e7dfd5;
+    text-align: center;
+}
+
+    .info-email p {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.5;
+        color: #6d6258;
+    }
