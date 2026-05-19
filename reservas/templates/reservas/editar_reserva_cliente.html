@@ -7,26 +7,73 @@
     <form method="post" class="form-vertical">
         {% csrf_token %}
 
-        <input name="personas" type="number" min="1" max="{{ max_personas }}" value="{{ reserva.personas }}" required>
-        <input id="editar-fecha" name="fecha" type="date" min="{{ hoy|date:'Y-m-d' }}" value="{{ reserva.fecha|date:'Y-m-d' }}" required>
-        <input name="hora" type="time" value="{{ reserva.hora|time:'H:i' }}" required>
+        <input name="personas"
+               type="number"
+               min="1"
+               max="{{ max_personas }}"
+               value="{{ personas_form|default:reserva.personas }}"
+               required>
 
-        <select name="zona" required>
-            <option value="barra" {% if reserva.zona == "barra" %}selected{% endif %}>Barra</option>
-            <option value="mesa" {% if reserva.zona == "mesa" %}selected{% endif %}>Mesa</option>
-        </select>
+        <input id="editar-fecha"
+               name="fecha"
+               type="date"
+               min="{{ hoy|date:'Y-m-d' }}"
+               value="{{ fecha_form|date:'Y-m-d'|default:reserva.fecha|date:'Y-m-d' }}"
+               required>
 
-        <button class="button">Guardar cambios</button>
+        <input name="hora"
+               type="time"
+               value="{{ hora_form|time:'H:i'|default:reserva.hora|time:'H:i' }}"
+               required>
+
+        <button class="button" name="accion" value="buscar_zonas">
+            Buscar zonas disponibles
+        </button>
     </form>
+
+    {% if mostrar_zonas %}
+    <hr>
+
+    <h3>Elige una zona disponible</h3>
+
+    <form method="post" class="form-vertical">
+        {% csrf_token %}
+
+        <input type="hidden" name="personas" value="{{ personas_form }}">
+        <input type="hidden" name="fecha" value="{{ fecha_form|date:'Y-m-d' }}">
+        <input type="hidden" name="hora" value="{{ hora_form|time:'H:i' }}">
+
+        {% for z in zonas %}
+        <button class="option-button" name="zona" value="{{ z.id }}">
+            <strong>{{ z.nombre }}</strong>
+
+            {% if z.descripcion %}
+            <span>{{ z.descripcion }}</span>
+            {% endif %}
+
+            <small>{{ z.plazas_libres }} plazas disponibles</small>
+        </button>
+        {% empty %}
+        <p class="muted">No hay zonas disponibles para esos datos.</p>
+        {% endfor %}
+    </form>
+    {% endif %}
 </div>
 
 <script>
     const editarFecha = document.getElementById("editar-fecha");
+
     if (editarFecha) {
         editarFecha.addEventListener("change", function () {
             const partes = this.value.split("-");
-            const fecha = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+            const fecha = new Date(
+                Number(partes[0]),
+                Number(partes[1]) - 1,
+                Number(partes[2])
+            );
+
             const dia = fecha.getDay();
+
             if (dia === 1 || dia === 2) {
                 alert("Cerrado por descanso. Elige otra fecha para continuar.");
                 this.value = "";

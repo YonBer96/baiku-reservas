@@ -546,3 +546,21 @@ textarea {
         line-height: 1.5;
         color: #6d6258;
     }
+
+.option-button strong,
+.option-button span,
+.option-button small {
+    display: block;
+}
+
+.option-button span {
+    margin-top: 6px;
+    font-size: 14px;
+    opacity: 0.75;
+}
+
+.option-button small {
+    margin-top: 6px;
+    font-size: 12px;
+    opacity: 0.55;
+}

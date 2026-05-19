@@ -10,6 +10,8 @@ class ReservaAdmin(admin.ModelAdmin):
         "fecha",
         "hora",
         "zona",
+        "personas_barra",
+        "personas_mesa",
         "estado",
         "importe_anticipo",
     )

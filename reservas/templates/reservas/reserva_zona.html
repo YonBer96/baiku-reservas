@@ -10,11 +10,17 @@
         {% csrf_token %}
 
         {% for z in zonas %}
-            <button class="option-button" name="zona" value="{{ z.id }}">
-                {{ z.nombre }} · {{ z.plazas_libres }} libres
-            </button>
+        <button class="option-button" name="zona" value="{{ z.id }}">
+            <strong>{{ z.nombre }}</strong>
+
+            {% if z.descripcion %}
+            <span>{{ z.descripcion }}</span>
+            {% endif %}
+
+            
+        </button>
         {% empty %}
-            <p class="muted">No hay zonas disponibles para este turno.</p>
+        <p class="muted">No hay zonas disponibles para este turno.</p>
         {% endfor %}
     </form>
 

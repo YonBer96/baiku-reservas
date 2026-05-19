@@ -25,6 +25,8 @@ from .services.disponibilidad import (
     turnos_disponibles,
     zonas_disponibles,
     horas_llegada_para_turno,
+    zona_base,
+    datos_combinada,
 )
 
 
@@ -67,7 +69,63 @@ def _hora_desde_texto(hora_txt):
 
 
 def _zona_nombre(zona):
-    return dict(Reserva.ZONA_CHOICES).get(zona, zona)
+    zona_normalizada = zona_base(zona)
+    return dict(Reserva.ZONA_CHOICES).get(zona_normalizada, zona_normalizada)
+
+
+def _normalizar_zona_para_guardar(zona, personas):
+    """
+    Convierte la opción elegida en el formulario a datos guardables en BD.
+
+    Ejemplo:
+    - "combinada:8:3" -> zona="combinada", personas_barra=8, personas_mesa=3
+    - "barra" -> zona="barra", personas_barra=personas, personas_mesa=0
+    - "mesa" -> zona="mesa", personas_barra=0, personas_mesa=personas
+    """
+    zona_normalizada = zona_base(zona)
+
+    if zona_normalizada == "combinada":
+        datos = datos_combinada(zona)
+
+        if not datos:
+            # Fallback conservador para datos antiguos.
+            personas_barra = min(personas, CAPACIDAD_BARRA)
+            personas_mesa = max(personas - personas_barra, 0)
+        else:
+            personas_barra = datos["personas_barra"]
+            personas_mesa = datos["personas_mesa"]
+
+        descripcion = f"Barra + mesas · {personas_barra} en barra + {personas_mesa} en mesa"
+
+        return {
+            "zona": "combinada",
+            "personas_barra": personas_barra,
+            "personas_mesa": personas_mesa,
+            "zona_nombre": descripcion,
+        }
+
+    if zona_normalizada == "barra":
+        return {
+            "zona": "barra",
+            "personas_barra": personas,
+            "personas_mesa": 0,
+            "zona_nombre": "Barra",
+        }
+
+    if zona_normalizada == "mesa":
+        return {
+            "zona": "mesa",
+            "personas_barra": 0,
+            "personas_mesa": personas,
+            "zona_nombre": "Mesa" if personas <= 2 else "Mesas juntas",
+        }
+
+    return {
+        "zona": zona_normalizada,
+        "personas_barra": 0,
+        "personas_mesa": 0,
+        "zona_nombre": _zona_nombre(zona_normalizada),
+    }
 
 
 def _enviar_email_seguro(funcion_email, reserva):
@@ -117,14 +175,22 @@ def reserva_fecha(request):
             messages.error(request, motivo_no_reservable)
             return redirect("reserva_fecha")
 
+        # Se permite reservar el mismo día mientras queden horas futuras disponibles.
+        # La validación fina se hace en el paso de hora y en hay_disponibilidad().
+
         request.session["reserva"] = {"fecha": fecha_txt}
         request.session.modified = True
+
         return redirect("reserva_personas")
 
     return render(
         request,
         "reservas/reserva_fecha.html",
-        {"reserva": reserva, "paso": PASOS_RESERVA["fecha"], "hoy": date.today()},
+        {
+            "reserva": reserva,
+            "paso": PASOS_RESERVA["fecha"],
+            "hoy": date.today(),
+        },
     )
 
 
@@ -194,7 +260,10 @@ def reserva_turno(request):
 
         reserva.pop("hora", None)
         reserva.pop("zona", None)
+        reserva.pop("zona_opcion", None)
         reserva.pop("zona_nombre", None)
+        reserva.pop("personas_barra", None)
+        reserva.pop("personas_mesa", None)
         reserva["turno"] = turno_tipo
         request.session["reserva"] = reserva
         request.session.modified = True
@@ -224,7 +293,12 @@ def reserva_hora(request):
     fecha = _fecha_desde_texto(reserva["fecha"])
     personas = int(reserva["personas"])
     turno_tipo = reserva["turno"]
-    horas = horas_llegada_para_turno(turno_tipo)
+
+    # Solo mostramos horas que todavía son válidas y con disponibilidad.
+    horas = [
+        h for h in horas_llegada_para_turno(turno_tipo)
+        if zonas_disponibles(fecha, h, personas)
+    ]
 
     if request.method == "POST":
         hora_txt = request.POST.get("hora")
@@ -277,7 +351,10 @@ def reserva_zona(request):
             messages.error(request, "Esa zona ya no está disponible.")
             return redirect("reserva_zona")
 
-        guardar_reserva_session(request, {"zona": zona, "zona_nombre": _zona_nombre(zona)})
+        datos_zona = _normalizar_zona_para_guardar(zona, personas)
+        datos_zona["zona_opcion"] = zona
+
+        guardar_reserva_session(request, datos_zona)
         return redirect("reserva_datos")
 
     return render(
@@ -353,9 +430,11 @@ def crear_pago_stripe(request):
     hora = _hora_desde_texto(reserva_data["hora"])
     personas = int(reserva_data["personas"])
     zona = reserva_data["zona"]
+    zona_opcion = reserva_data.get("zona_opcion", zona)
+    datos_zona = _normalizar_zona_para_guardar(zona_opcion, personas)
 
     with transaction.atomic():
-        if not hay_disponibilidad(fecha, hora, personas, zona):
+        if not hay_disponibilidad(fecha, hora, personas, zona_opcion):
             messages.error(request, "Lo sentimos, esa opción ya no está disponible.")
             return redirect("reserva_fecha")
 
@@ -366,7 +445,9 @@ def crear_pago_stripe(request):
             personas=personas,
             fecha=fecha,
             hora=hora,
-            zona=zona,
+            zona=datos_zona["zona"],
+            personas_barra=datos_zona["personas_barra"],
+            personas_mesa=datos_zona["personas_mesa"],
             notas=reserva_data.get("notas", ""),
             importe_anticipo=IMPORTE_ANTICIPO,
             estado="pendiente_pago",
@@ -402,6 +483,9 @@ def crear_pago_stripe(request):
 
 def enviar_email_confirmacion(reserva):
     asunto = "Reserva confirmada en Baiku"
+    zona_texto = reserva.get_zona_display()
+    if reserva.zona == "combinada" and (reserva.personas_barra or reserva.personas_mesa):
+        zona_texto = f"Barra + mesas ({reserva.personas_barra} en barra + {reserva.personas_mesa} en mesa)"
 
     enlace = "https://baiku-reservas.onrender.com/gestionar-reserva/"
 
@@ -412,7 +496,7 @@ def enviar_email_confirmacion(reserva):
         f"Fecha: {reserva.fecha.strftime('%d/%m/%Y')}\n"
         f"Hora: {reserva.hora.strftime('%H:%M')}\n"
         f"Personas: {reserva.personas}\n"
-        f"Zona: {reserva.get_zona_display()}\n\n"
+        f"Zona: {zona_texto}\n\n"
         "Puedes gestionar o cancelar tu reserva desde:\n"
         f"{enlace}\n\n"
         "Muchas gracias,\n"
@@ -429,6 +513,9 @@ def enviar_email_confirmacion(reserva):
 
 def enviar_email_modificacion(reserva):
     asunto = "Tu reserva en Baiku ha sido modificada"
+    zona_texto = reserva.get_zona_display()
+    if reserva.zona == "combinada" and (reserva.personas_barra or reserva.personas_mesa):
+        zona_texto = f"Barra + mesas ({reserva.personas_barra} en barra + {reserva.personas_mesa} en mesa)"
 
     enlace = "https://baiku-reservas.onrender.com/gestionar-reserva/"
 
@@ -439,7 +526,7 @@ def enviar_email_modificacion(reserva):
         f"Fecha: {reserva.fecha.strftime('%d/%m/%Y')}\n"
         f"Hora: {reserva.hora.strftime('%H:%M')}\n"
         f"Personas: {reserva.personas}\n"
-        f"Zona: {reserva.get_zona_display()}\n\n"
+        f"Zona: {zona_texto}\n\n"
         "Puedes volver a gestionarla desde:\n"
         f"{enlace}\n\n"
         "Gracias,\n"
@@ -669,7 +756,7 @@ def staff_nueva_reserva(request):
                 "turno_tipo": turno_tipo,
                 "hora": hora,
                 "zona": zona,
-                "zona_nombre": _zona_nombre(zona),
+                "zona_nombre": _normalizar_zona_para_guardar(zona, personas)["zona_nombre"],
             }
         else:
             messages.error(request, "Ese hueco ya no está disponible. Elige otro.")
@@ -699,6 +786,8 @@ def staff_nueva_reserva(request):
                 f"/staff/nueva-reserva/?fecha={fecha_txt}&personas={personas}&turno={turno_tipo}"
             )
 
+        datos_zona = _normalizar_zona_para_guardar(zona, personas)
+
         reserva = Reserva.objects.create(
             nombre=nombre,
             email=email,
@@ -706,7 +795,9 @@ def staff_nueva_reserva(request):
             personas=personas,
             fecha=fecha,
             hora=hora,
-            zona=zona,
+            zona=datos_zona["zona"],
+            personas_barra=datos_zona["personas_barra"],
+            personas_mesa=datos_zona["personas_mesa"],
             notas=notas,
             estado="confirmada",
             importe_anticipo=0,
@@ -748,9 +839,11 @@ def confirmar_reserva(request):
     hora = _hora_desde_texto(reserva_data["hora"])
     personas = int(reserva_data["personas"])
     zona = reserva_data["zona"]
+    zona_opcion = reserva_data.get("zona_opcion", zona)
+    datos_zona = _normalizar_zona_para_guardar(zona_opcion, personas)
 
     with transaction.atomic():
-        if not hay_disponibilidad(fecha, hora, personas, zona):
+        if not hay_disponibilidad(fecha, hora, personas, zona_opcion):
             messages.error(request, "Lo sentimos, esa opción ya no está disponible.")
             return redirect("reserva_fecha")
 
@@ -761,7 +854,9 @@ def confirmar_reserva(request):
             personas=personas,
             fecha=fecha,
             hora=hora,
-            zona=zona,
+            zona=datos_zona["zona"],
+            personas_barra=datos_zona["personas_barra"],
+            personas_mesa=datos_zona["personas_mesa"],
             notas=reserva_data.get("notas", ""),
             importe_anticipo=0,
             estado="confirmada",
@@ -797,9 +892,23 @@ def gestionar_reserva(request):
 @require_POST
 def eliminar_reserva_cliente(request, reserva_id):
     reserva = get_object_or_404(Reserva, id=reserva_id)
+
     reserva.estado = "cancelada"
-    reserva.save(update_fields=["estado", "actualizado"])
-    messages.success(request, "Reserva cancelada correctamente.")
+
+    reserva.save(
+        update_fields=["estado", "actualizado"]
+    )
+
+    _enviar_email_seguro(
+        enviar_email_cancelacion,
+        reserva
+    )
+
+    messages.success(
+        request,
+        "Reserva cancelada correctamente."
+    )
+
     return redirect("gestionar_reserva")
 
 
@@ -807,6 +916,8 @@ def editar_reserva_cliente(request, reserva_id):
     reserva = get_object_or_404(Reserva, id=reserva_id)
 
     if request.method == "POST":
+        accion = request.POST.get("accion")
+
         try:
             personas = int(request.POST.get("personas", 0))
             fecha = _fecha_desde_texto(request.POST.get("fecha"))
@@ -814,8 +925,6 @@ def editar_reserva_cliente(request, reserva_id):
         except (TypeError, ValueError):
             messages.error(request, "Datos de reserva no válidos.")
             return redirect("editar_reserva_cliente", reserva_id=reserva.id)
-
-        zona = request.POST.get("zona")
 
         if personas < 1 or personas > MAX_PERSONAS_RESERVA:
             messages.error(request, f"Elige entre 1 y {MAX_PERSONAS_RESERVA} personas.")
@@ -826,15 +935,64 @@ def editar_reserva_cliente(request, reserva_id):
             messages.error(request, motivo_no_reservable or "No puedes reservar una fecha pasada.")
             return redirect("editar_reserva_cliente", reserva_id=reserva.id)
 
-        if not hay_disponibilidad(fecha, hora, personas, zona):
+        zonas = zonas_disponibles(
+            fecha,
+            hora,
+            personas,
+            excluir_reserva_id=reserva.id,
+        )
+
+        if accion == "buscar_zonas":
+            return render(
+                request,
+                "reservas/editar_reserva_cliente.html",
+                {
+                    "reserva": reserva,
+                    "max_personas": MAX_PERSONAS_RESERVA,
+                    "hoy": date.today(),
+                    "personas_form": personas,
+                    "fecha_form": fecha,
+                    "hora_form": hora,
+                    "zonas": zonas,
+                    "mostrar_zonas": True,
+                },
+            )
+
+        zona = request.POST.get("zona")
+
+        if not zona:
+            messages.error(request, "Elige una zona disponible.")
+            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+
+        if not hay_disponibilidad(
+            fecha,
+            hora,
+            personas,
+            zona,
+            excluir_reserva_id=reserva.id,
+        ):
             messages.error(request, "Ese nuevo hueco no está disponible.")
             return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+
+        datos_zona = _normalizar_zona_para_guardar(zona, personas)
 
         reserva.personas = personas
         reserva.fecha = fecha
         reserva.hora = hora
-        reserva.zona = zona
-        reserva.save(update_fields=["personas", "fecha", "hora", "zona", "actualizado"])
+        reserva.zona = datos_zona["zona"]
+        reserva.personas_barra = datos_zona["personas_barra"]
+        reserva.personas_mesa = datos_zona["personas_mesa"]
+        reserva.save(
+            update_fields=[
+                "personas",
+                "fecha",
+                "hora",
+                "zona",
+                "personas_barra",
+                "personas_mesa",
+                "actualizado",
+            ]
+        )
         _enviar_email_seguro(enviar_email_modificacion, reserva)
         messages.success(request, "Reserva modificada correctamente.")
         return redirect("gestionar_reserva")
@@ -842,8 +1000,18 @@ def editar_reserva_cliente(request, reserva_id):
     return render(
         request,
         "reservas/editar_reserva_cliente.html",
-        {"reserva": reserva, "max_personas": MAX_PERSONAS_RESERVA, "hoy": date.today()},
+        {
+            "reserva": reserva,
+            "max_personas": MAX_PERSONAS_RESERVA,
+            "hoy": date.today(),
+            "personas_form": reserva.personas,
+            "fecha_form": reserva.fecha,
+            "hora_form": reserva.hora,
+            "zonas": [],
+            "mostrar_zonas": False,
+        },
     )
+
 
 @login_required
 def staff_reservas_count(request):
@@ -857,3 +1025,38 @@ def staff_reservas_count(request):
     )
 
     return JsonResponse({"total": total})
+
+
+def enviar_email_cancelacion(reserva):
+    asunto = "Tu reserva en Baiku ha sido cancelada"
+
+    zona_texto = reserva.get_zona_display()
+
+    if reserva.zona == "combinada" and (
+        reserva.personas_barra or reserva.personas_mesa
+    ):
+        zona_texto = (
+            f"Barra + mesas "
+            f"({reserva.personas_barra} en barra + "
+            f"{reserva.personas_mesa} en mesa)"
+        )
+
+    mensaje = (
+        f"Hola {reserva.nombre},\n\n"
+        "Tu reserva en Baiku ha sido cancelada correctamente.\n\n"
+        "DATOS CANCELADOS\n"
+        f"Fecha: {reserva.fecha.strftime('%d/%m/%Y')}\n"
+        f"Hora: {reserva.hora.strftime('%H:%M')}\n"
+        f"Personas: {reserva.personas}\n"
+        f"Zona: {zona_texto}\n\n"
+        "Esperamos verte pronto.\n\n"
+        "Baiku"
+    )
+
+    send_mail(
+        asunto,
+        mensaje,
+        settings.DEFAULT_FROM_EMAIL,
+        [reserva.email],
+        fail_silently=False,
+    )

@@ -20,7 +20,7 @@
         <div><span>Fecha</span><strong>{{ reserva.fecha }}</strong></div>
         <div><span>Hora</span><strong>{{ reserva.hora }}</strong></div>
         <div><span>Personas</span><strong>{{ reserva.personas }}</strong></div>
-        <div><span>Zona</span><strong>{{ reserva.get_zona_display }}</strong></div>
+        <div><span>Zona</span><strong>{{ reserva.zona_detalle }}</strong></div>
     </div>
 
     <a class="button" href="{% url 'editar_reserva_cliente' reserva.id %}">Modificar</a>
