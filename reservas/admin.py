@@ -8,6 +8,7 @@ class ReservaAdmin(admin.ModelAdmin):
         "nombre",
         "personas",
         "fecha",
+        "servicio",
         "hora",
         "zona",
         "personas_barra",
@@ -15,7 +16,7 @@ class ReservaAdmin(admin.ModelAdmin):
         "estado",
         "importe_anticipo",
     )
-    list_filter = ("fecha", "hora", "zona", "estado")
+    list_filter = ("fecha", "servicio", "hora", "zona", "estado")
     search_fields = ("nombre", "email", "telefono")
     ordering = ("fecha", "hora")
 

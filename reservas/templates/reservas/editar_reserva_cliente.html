@@ -7,6 +7,7 @@
     <form method="post" class="form-vertical">
         {% csrf_token %}
 
+        <label>Personas</label>
         <input name="personas"
                type="number"
                min="1"
@@ -14,17 +15,32 @@
                value="{{ personas_form|default:reserva.personas }}"
                required>
 
+        <label>Fecha</label>
+
+        <div id="mini-calendar"
+             class="mini-calendar"
+             data-api="{% url 'calendario_reservas_api' %}"
+             data-selected="{{ fecha_form|date:'Y-m-d'|default:reserva.fecha|date:'Y-m-d' }}">
+            <p class="muted">Cargando calendario...</p>
+        </div>
+
         <input id="editar-fecha"
                name="fecha"
-               type="date"
-               min="{{ hoy|date:'Y-m-d' }}"
+               type="hidden"
                value="{{ fecha_form|date:'Y-m-d'|default:reserva.fecha|date:'Y-m-d' }}"
                required>
 
-        <input name="hora"
-               type="time"
-               value="{{ hora_form|time:'H:i'|default:reserva.hora|time:'H:i' }}"
-               required>
+        <label>Servicio</label>
+
+        <select name="servicio" class="input" required>
+            {% if reserva.servicio == 'cena' %}
+            <option value="comida">Comida</option>
+            <option value="cena" selected>Cena</option>
+            {% else %}
+            <option value="comida" selected>Comida</option>
+            <option value="cena">Cena</option>
+            {% endif %}
+        </select>
 
         <button class="button" name="accion" value="buscar_zonas">
             Buscar zonas disponibles
@@ -42,6 +58,7 @@
         <input type="hidden" name="personas" value="{{ personas_form }}">
         <input type="hidden" name="fecha" value="{{ fecha_form|date:'Y-m-d' }}">
         <input type="hidden" name="hora" value="{{ hora_form|time:'H:i' }}">
+        <input type="hidden" name="servicio" value="{{ servicio_form }}">
 
         {% for z in zonas %}
         <button class="option-button" name="zona" value="{{ z.id }}">
@@ -61,24 +78,162 @@
 </div>
 
 <script>
-    const editarFecha = document.getElementById("editar-fecha");
+    (function () {
+        const inputFecha = document.getElementById("editar-fecha");
+        const calendar = document.getElementById("mini-calendar");
 
-    if (editarFecha) {
-        editarFecha.addEventListener("change", function () {
-            const partes = this.value.split("-");
-            const fecha = new Date(
-                Number(partes[0]),
-                Number(partes[1]) - 1,
-                Number(partes[2])
+        if (!calendar || !inputFecha) return;
+
+        const apiUrl = calendar.dataset.api;
+        let calendarData = [];
+
+        let currentDate = inputFecha.value
+            ? new Date(inputFecha.value)
+            : new Date();
+
+        const today = new Date();
+
+        const maxDate = new Date();
+        maxDate.setMonth(maxDate.getMonth() + 3);
+
+        const monthNames = [
+            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+        ];
+
+        function toISODate(date) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, "0");
+            const d = String(date.getDate()).padStart(2, "0");
+            return `${y}-${m}-${d}`;
+        }
+
+        function getDayData(isoDate) {
+            return calendarData.find(day => day.fecha === isoDate);
+        }
+
+        function sameMonthOrBefore(dateA, dateB) {
+            return (
+                dateA.getFullYear() < dateB.getFullYear() ||
+                (
+                    dateA.getFullYear() === dateB.getFullYear() &&
+                    dateA.getMonth() <= dateB.getMonth()
+                )
             );
+        }
 
-            const dia = fecha.getDay();
+        function sameMonthOrAfter(dateA, dateB) {
+            return (
+                dateA.getFullYear() > dateB.getFullYear() ||
+                (
+                    dateA.getFullYear() === dateB.getFullYear() &&
+                    dateA.getMonth() >= dateB.getMonth()
+                )
+            );
+        }
 
-            if (dia === 1 || dia === 2) {
-                alert("Cerrado por descanso. Elige otra fecha para continuar.");
-                this.value = "";
+        function renderMonth() {
+            calendar.innerHTML = `
+            <div class="calendar-header mini">
+                <button type="button" id="mini-prev-month" class="calendar-nav">‹</button>
+                <strong>${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}</strong>
+                <button type="button" id="mini-next-month" class="calendar-nav">›</button>
+            </div>
+
+            <div class="calendar-weekdays">
+                <span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span>
+            </div>
+
+            <div class="calendar-grid calendar-month" id="mini-calendar-grid"></div>
+        `;
+
+            const grid = document.getElementById("mini-calendar-grid");
+            const prevBtn = document.getElementById("mini-prev-month");
+            const nextBtn = document.getElementById("mini-next-month");
+
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+
+            let startOffset = firstDay.getDay() - 1;
+            if (startOffset < 0) startOffset = 6;
+
+            for (let i = 0; i < startOffset; i++) {
+                const empty = document.createElement("div");
+                empty.className = "calendar-empty";
+                grid.appendChild(empty);
             }
-        });
-    }
+
+            for (let dayNumber = 1; dayNumber <= lastDay.getDate(); dayNumber++) {
+                const date = new Date(year, month, dayNumber);
+                const isoDate = toISODate(date);
+                const day = getDayData(isoDate);
+
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "calendar-day-month";
+                button.dataset.fecha = isoDate;
+                button.innerHTML = `<span>${dayNumber}</span>`;
+
+                if (!day || date < new Date(today.getFullYear(), today.getMonth(), today.getDate()) || date > maxDate) {
+                    button.classList.add("pasado");
+                    button.disabled = true;
+                } else {
+                    button.classList.add(day.estado);
+                    button.disabled =
+                        day.bloqueado ||
+                        day.estado === "completo" ||
+                        day.estado === "pasado";
+                }
+
+                if (inputFecha.value === isoDate) {
+                    button.classList.add("selected");
+                }
+
+                button.addEventListener("click", () => {
+                    inputFecha.value = isoDate;
+
+                    document.querySelectorAll(".calendar-day-month.selected")
+                        .forEach(el => el.classList.remove("selected"));
+
+                    button.classList.add("selected");
+                });
+
+                grid.appendChild(button);
+            }
+
+            const prevMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+            const nextMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+            const todayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            const maxMonth = new Date(maxDate.getFullYear(), maxDate.getMonth(), 1);
+
+            prevBtn.disabled = !sameMonthOrAfter(prevMonth, todayMonth);
+            nextBtn.disabled = !sameMonthOrBefore(nextMonth, maxMonth);
+
+            prevBtn.addEventListener("click", () => {
+                if (prevBtn.disabled) return;
+                currentDate = prevMonth;
+                renderMonth();
+            });
+
+            nextBtn.addEventListener("click", () => {
+                if (nextBtn.disabled) return;
+                currentDate = nextMonth;
+                renderMonth();
+            });
+        }
+
+        fetch(apiUrl)
+            .then(response => response.json())
+            .then(data => {
+                calendarData = data.dias || [];
+                renderMonth();
+            })
+            .catch(() => {
+                calendar.innerHTML = '<p class="muted">No se pudo cargar el calendario.</p>';
+            });
+    })();
 </script>
 {% endblock %}

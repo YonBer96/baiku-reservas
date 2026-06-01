@@ -17,6 +17,11 @@ class Reserva(models.Model):
         ("completo", "Restaurante completo"),
     ]
 
+    SERVICIO_CHOICES = [
+        ("comida", "Comida"),
+        ("cena", "Cena"),
+    ]
+
     nombre = models.CharField(max_length=120)
     email = models.EmailField()
     telefono = models.CharField(max_length=30)
@@ -29,6 +34,11 @@ class Reserva(models.Model):
 
     fecha = models.DateField()
     hora = models.TimeField()
+    servicio = models.CharField(
+        max_length=20,
+        choices=SERVICIO_CHOICES,
+        default="comida",
+    )
 
     zona = models.CharField(
         max_length=20,
@@ -60,7 +70,7 @@ class Reserva(models.Model):
     recordatorio_enviado = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ["fecha", "hora", "zona"]
+        ordering = ["fecha", "servicio", "hora", "zona"]
 
     @property
     def zona_detalle(self):

@@ -5,6 +5,7 @@ urlpatterns = [
     path("", views.inicio, name="inicio"),
     path("reservar/personas/", views.reserva_personas, name="reserva_personas"),
     path("reservar/fecha/", views.reserva_fecha, name="reserva_fecha"),
+    path("api/calendario-reservas/", views.calendario_reservas_api, name="calendario_reservas_api"),
     path("reservar/turno/", views.reserva_turno, name="reserva_turno"),
     path("reservar/hora/", views.reserva_hora, name="reserva_hora"),
     path("reservar/zona/", views.reserva_zona, name="reserva_zona"),

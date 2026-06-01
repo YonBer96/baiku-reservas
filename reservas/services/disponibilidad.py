@@ -1,6 +1,6 @@
 from datetime import time, timedelta, datetime, date
 
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from django.utils import timezone
 
 from reservas.models import BloqueoDia, Reserva
@@ -16,7 +16,7 @@ TURNOS_COMIDA = [time(13, 0)]
 # Turno único de noche: entrada a las 20:00 y servicio hasta las 22:30.
 TURNOS_CENA = [time(20, 0)]
 
-ESTADOS_QUE_OCUPAN = ["confirmada", "llegado"]
+ESTADOS_QUE_OCUPAN = ["pendiente_pago", "confirmada", "llegado"]
 
 
 def etiqueta_turno(hora):
@@ -57,13 +57,38 @@ def obtener_turnos_reservables_para_fecha(fecha):
     return [turno for turno in turnos if turno > ahora]
 
 
+
+
+def servicio_de_hora(hora):
+    """Devuelve comida/cena según la hora de llegada."""
+    if time(13, 0) <= hora <= time(16, 0):
+        return "comida"
+    if time(20, 0) <= hora <= time(22, 30):
+        return "cena"
+    return None
+
+
+def hora_ocupada(fecha, hora, excluir_reserva_id=None):
+    """Bloquea una llegada exacta de 15 minutos si ya hay una reserva activa."""
+    return reservas_que_ocupan(excluir_reserva_id).filter(
+        fecha=fecha,
+        hora=hora,
+    ).exists()
+
 def dia_bloqueado(fecha):
     return BloqueoDia.objects.filter(fecha=fecha).exists()
 
 
 def reservas_que_ocupan(excluir_reserva_id=None):
+    """Reservas que bloquean disponibilidad.
+
+    Las pendientes de pago solo bloquean mientras no hayan expirado.
+    """
+    ahora = timezone.now()
     qs = Reserva.objects.filter(
-        estado__in=ESTADOS_QUE_OCUPAN
+        Q(estado__in=["confirmada", "llegado"])
+        | Q(estado="pendiente_pago", expira_en__gt=ahora)
+        | Q(estado="pendiente_pago", expira_en__isnull=True)
     )
 
     if excluir_reserva_id:
@@ -309,6 +334,10 @@ def hay_disponibilidad(fecha, hora, personas, zona, excluir_reserva_id=None):
         if hora <= ahora:
             return False
 
+    # Nueva regla: dos grupos no pueden llegar exactamente a la misma hora.
+    if hora_ocupada(fecha, hora, excluir_reserva_id):
+        return False
+
     periodo = periodo_de_hora(hora)
     turnos_fecha = obtener_turnos_para_fecha(fecha)
 
@@ -474,19 +503,26 @@ def zonas_disponibles(fecha, hora, personas, excluir_reserva_id=None):
 
 
 def turnos_disponibles(fecha, personas):
+    """Devuelve servicios disponibles si tienen al menos una hora de llegada libre."""
     if dia_bloqueado(fecha):
         return []
 
+    servicios_base = obtener_turnos_reservables_para_fecha(fecha)
     turnos = []
 
-    for hora in obtener_turnos_reservables_para_fecha(fecha):
-        zonas = zonas_disponibles(fecha, hora, personas)
+    for turno_base in servicios_base:
+        servicio = "cena" if turno_base == time(20, 0) else "comida"
+        horas = [
+            h for h in horas_llegada_para_turno(fecha, servicio)
+            if zonas_disponibles(fecha, h, personas)
+        ]
 
-        if zonas:
+        if horas:
             turnos.append({
-                "hora": hora,
-                "etiqueta": etiqueta_turno(hora),
-                "zonas": zonas,
+                "hora": turno_base,
+                "servicio": servicio,
+                "etiqueta": "Comida" if servicio == "comida" else "Cena",
+                "horas_disponibles": horas,
             })
 
     return turnos
@@ -521,15 +557,14 @@ def mapa_ocupacion(fecha):
     return turnos
 
 
-def horas_llegada_para_turno(turno):
+def horas_llegada_para_turno(fecha, turno, excluir_reserva_id=None):
+    """Genera horas de llegada cada 15 minutos y elimina las ya ocupadas."""
     if turno == "comida":
         inicio = time(13, 0)
         fin = time(15, 30)
-
     elif turno == "cena":
         inicio = time(20, 0)
         fin = time(22, 30)
-
     else:
         return []
 
@@ -538,7 +573,67 @@ def horas_llegada_para_turno(turno):
     limite = datetime.combine(date.today(), fin)
 
     while actual <= limite:
-        horas.append(actual.time())
+        hora_actual = actual.time()
+        if not hora_ocupada(fecha, hora_actual, excluir_reserva_id):
+            if fecha != timezone.localdate() or hora_actual > timezone.localtime().time():
+                horas.append(hora_actual)
         actual += timedelta(minutes=15)
 
     return horas
+
+
+def resumen_calendario_dia(fecha):
+    """
+    Estado del calendario según ocupación REAL del restaurante.
+    Verde = mucho sitio
+    Amarillo = pocas plazas
+    Rojo = completo o casi completo
+    """
+
+    if fecha < timezone.localdate():
+        return {
+            "estado": "pasado",
+            "vacantes": 0,
+            "total": CAPACIDAD_TOTAL,
+            "bloqueado": True,
+        }
+
+    if dia_bloqueado(fecha) or fecha.weekday() in [0, 1]:
+        return {
+            "estado": "cerrado",
+            "vacantes": 0,
+            "total": CAPACIDAD_TOTAL,
+            "bloqueado": True,
+        }
+
+    max_libres = 0
+
+    for turno_base in obtener_turnos_reservables_para_fecha(fecha):
+
+        barra_ocupada = personas_reservadas(fecha, turno_base, "barra")
+        mesa_ocupada = personas_reservadas(fecha, turno_base, "mesa")
+
+        barra_libre = max(CAPACIDAD_BARRA - barra_ocupada, 0)
+        mesa_libre = max(CAPACIDAD_MESA - mesa_ocupada, 0)
+
+        libres_turno = barra_libre + mesa_libre
+
+        max_libres = max(max_libres, libres_turno)
+
+    vacantes = max_libres
+
+    if vacantes <= 0:
+        estado = "completo"
+
+    elif vacantes <= 4:
+        estado = "pocas"
+
+    else:
+        estado = "disponible"
+
+    return {
+        "estado": estado,
+        "vacantes": vacantes,
+        "total": CAPACIDAD_TOTAL,
+        "bloqueado": False,
+    }

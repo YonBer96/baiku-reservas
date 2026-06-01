@@ -25,6 +25,8 @@ from .services.disponibilidad import (
     turnos_disponibles,
     zonas_disponibles,
     horas_llegada_para_turno,
+    periodo_de_hora,
+    resumen_calendario_dia,
     zona_base,
     datos_combinada,
 )
@@ -43,6 +45,38 @@ PASOS_RESERVA = {
     "datos": {"numero": 6, "total": 7, "titulo": "Datos"},
     "resumen": {"numero": 7, "total": 7, "titulo": "Confirmar"},
 }
+
+
+def calendario_reservas_api(request):
+    """Devuelve próximos días con estado para calendario visual."""
+    inicio_txt = request.GET.get("inicio")
+    dias_txt = request.GET.get("dias", "45")
+
+    try:
+        fecha_inicio = _fecha_desde_texto(inicio_txt) if inicio_txt else date.today()
+    except (TypeError, ValueError):
+        fecha_inicio = date.today()
+
+    try:
+        dias = min(max(int(dias_txt), 1), 90)
+    except (TypeError, ValueError):
+        dias = 45
+
+    datos = []
+    for offset in range(dias):
+        fecha = fecha_inicio + timedelta(days=offset)
+        resumen = resumen_calendario_dia(fecha)
+        datos.append({
+            "fecha": fecha.isoformat(),
+            "dia": fecha.day,
+            "nombre": fecha.strftime("%a"),
+            "estado": resumen["estado"],
+            "vacantes": resumen["vacantes"],
+            "total": resumen["total"],
+            "bloqueado": resumen["bloqueado"],
+        })
+
+    return JsonResponse({"dias": datos})
 
 
 def inicio(request):
@@ -296,7 +330,7 @@ def reserva_hora(request):
 
     # Solo mostramos horas que todavía son válidas y con disponibilidad.
     horas = [
-        h for h in horas_llegada_para_turno(turno_tipo)
+        h for h in horas_llegada_para_turno(fecha, turno_tipo)
         if zonas_disponibles(fecha, h, personas)
     ]
 
@@ -445,6 +479,7 @@ def crear_pago_stripe(request):
             personas=personas,
             fecha=fecha,
             hora=hora,
+            servicio=periodo_de_hora(hora) or reserva_data.get("turno", "comida"),
             zona=datos_zona["zona"],
             personas_barra=datos_zona["personas_barra"],
             personas_mesa=datos_zona["personas_mesa"],
@@ -736,7 +771,7 @@ def staff_nueva_reserva(request):
             turnos = turnos_disponibles(fecha, personas)
 
     if turno_tipo:
-        horas_llegada = horas_llegada_para_turno(turno_tipo)
+        horas_llegada = horas_llegada_para_turno(fecha, turno_tipo) if fecha else []
 
     if hora_txt:
         try:
@@ -795,6 +830,7 @@ def staff_nueva_reserva(request):
             personas=personas,
             fecha=fecha,
             hora=hora,
+            servicio=periodo_de_hora(hora) or turno_tipo or "comida",
             zona=datos_zona["zona"],
             personas_barra=datos_zona["personas_barra"],
             personas_mesa=datos_zona["personas_mesa"],
@@ -854,6 +890,7 @@ def confirmar_reserva(request):
             personas=personas,
             fecha=fecha,
             hora=hora,
+            servicio=periodo_de_hora(hora) or reserva_data.get("turno", "comida"),
             zona=datos_zona["zona"],
             personas_barra=datos_zona["personas_barra"],
             personas_mesa=datos_zona["personas_mesa"],
