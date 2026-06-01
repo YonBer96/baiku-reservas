@@ -50,7 +50,7 @@ PASOS_RESERVA = {
 def calendario_reservas_api(request):
     """Devuelve próximos días con estado para calendario visual."""
     inicio_txt = request.GET.get("inicio")
-    dias_txt = request.GET.get("dias", "45")
+    dias_txt = request.GET.get("dias", "90")
 
     try:
         fecha_inicio = _fecha_desde_texto(inicio_txt) if inicio_txt else date.today()
