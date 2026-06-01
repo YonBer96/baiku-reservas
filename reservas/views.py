@@ -122,7 +122,7 @@ def _normalizar_zona_para_guardar(zona, personas):
         datos = datos_combinada(zona)
 
         if not datos:
-            # Fallback conservador para datos antiguos.
+            
             personas_barra = min(personas, CAPACIDAD_BARRA)
             personas_mesa = max(personas - personas_barra, 0)
         else:
