@@ -20,26 +20,35 @@
         <div id="mini-calendar"
              class="mini-calendar"
              data-api="{% url 'calendario_reservas_api' %}"
-             data-selected="{{ fecha_form|date:'Y-m-d'|default:reserva.fecha|date:'Y-m-d' }}">
+             data-selected="{{ fecha_form|date:'Y-m-d' }}">
             <p class="muted">Cargando calendario...</p>
         </div>
 
         <input id="editar-fecha"
                name="fecha"
                type="hidden"
-               value="{{ fecha_form|date:'Y-m-d'|default:reserva.fecha|date:'Y-m-d' }}"
+               value="{{ fecha_form|date:'Y-m-d' }}"
                required>
 
         <label>Servicio</label>
 
-        <select name="servicio" class="input" required>
-            {% if reserva.servicio == 'cena' %}
-            <option value="comida">Comida</option>
-            <option value="cena" selected>Cena</option>
-            {% else %}
-            <option value="comida" selected>Comida</option>
-            <option value="cena">Cena</option>
-            {% endif %}
+        <select name="servicio" id="editar-servicio" class="input" required>
+            <option value="comida" {% if servicio_form == "comida" %}selected{% endif %}>Comida</option>
+            <option value="cena" {% if servicio_form == "cena" %}selected{% endif %}>Cena</option>
+        </select>
+
+        <label>Hora</label>
+
+        <select name="hora" class="input" required>
+            {% for h in horas_disponibles %}
+            <option value="{{ h|time:'H:i' }}" {% if hora_form == h %}selected{% endif %}>
+                {{ h|time:"H:i" }}
+            </option>
+            {% empty %}
+            <option value="{{ hora_form|time:'H:i' }}" selected>
+                {{ hora_form|time:"H:i" }}
+            </option>
+            {% endfor %}
         </select>
 
         <button class="button" name="accion" value="buscar_zonas">

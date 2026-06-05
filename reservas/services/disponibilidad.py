@@ -223,9 +223,10 @@ def reservas_del_mismo_periodo(fecha, hora, excluir_reserva_id=None):
         hora__lte=fin,
     )
 
-
-def total_personas_reservadas(fecha, hora):
-    return _total_queryset(reservas_del_mismo_periodo(fecha, hora))
+def total_personas_reservadas(fecha, hora, excluir_reserva_id=None):
+    return _total_queryset(
+        reservas_del_mismo_periodo(fecha, hora, excluir_reserva_id)
+    )
 
 
 def _ocupacion_reserva(reserva):
@@ -334,7 +335,6 @@ def hay_disponibilidad(fecha, hora, personas, zona, excluir_reserva_id=None):
         if hora <= ahora:
             return False
 
-    # Nueva regla: dos grupos no pueden llegar exactamente a la misma hora.
     if hora_ocupada(fecha, hora, excluir_reserva_id):
         return False
 
@@ -350,16 +350,33 @@ def hay_disponibilidad(fecha, hora, personas, zona, excluir_reserva_id=None):
     if not periodo:
         return False
 
+    # Seguridad global: nunca permitir más de 12 personas por servicio.
+    # Cuenta también reservas antiguas, por ejemplo las que quedaron a las 15:30.
+    ocupacion_turno = total_personas_reservadas(
+        fecha,
+        hora,
+        excluir_reserva_id
+    )
+
+    if ocupacion_turno + personas > CAPACIDAD_TOTAL:
+        return False
+
     if not zona_permitida(personas, zona):
         return False
 
     zona_normalizada = zona_base(zona)
 
     if zona_normalizada == "mesa":
-        return plazas_disponibles(fecha, hora, "mesa", excluir_reserva_id) >= plazas_mesa_que_bloquea(personas)
+        return (
+            plazas_disponibles(fecha, hora, "mesa", excluir_reserva_id)
+            >= plazas_mesa_que_bloquea(personas)
+        )
 
     if zona_normalizada == "barra":
-        return plazas_disponibles(fecha, hora, "barra", excluir_reserva_id) >= personas
+        return (
+            plazas_disponibles(fecha, hora, "barra", excluir_reserva_id)
+            >= personas
+        )
 
     if zona_normalizada == "combinada":
         datos = datos_combinada(zona)
@@ -382,12 +399,17 @@ def hay_disponibilidad(fecha, hora, personas, zona, excluir_reserva_id=None):
         mesa_necesaria = plazas_mesa_que_bloquea(personas_mesa)
 
         return (
-            plazas_disponibles(fecha, hora, "barra", excluir_reserva_id) >= personas_barra
-            and plazas_disponibles(fecha, hora, "mesa", excluir_reserva_id) >= mesa_necesaria
+            plazas_disponibles(fecha, hora, "barra", excluir_reserva_id)
+            >= personas_barra
+            and plazas_disponibles(fecha, hora, "mesa", excluir_reserva_id)
+            >= mesa_necesaria
         )
 
     if zona_normalizada == "completo":
-        return plazas_disponibles(fecha, hora, "completo", excluir_reserva_id) >= personas
+        return (
+            plazas_disponibles(fecha, hora, "completo", excluir_reserva_id)
+            >= personas
+        )
 
     return False
 

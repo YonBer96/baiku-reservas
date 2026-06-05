@@ -13,6 +13,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+from datetime import datetime, timedelta
+from django.utils import timezone
 
 from .models import BloqueoDia, Reserva
 from .services.disponibilidad import (
@@ -122,7 +124,7 @@ def _normalizar_zona_para_guardar(zona, personas):
         datos = datos_combinada(zona)
 
         if not datos:
-            # Fallback conservador para datos antiguos.
+            
             personas_barra = min(personas, CAPACIDAD_BARRA)
             personas_mesa = max(personas - personas_barra, 0)
         else:
@@ -406,12 +408,17 @@ def reserva_datos(request):
 
     if request.method == "POST":
         nombre = request.POST.get("nombre", "").strip()
-        email = request.POST.get("email", "").strip()
+        email = request.POST.get("email", "").strip().lower()
+        email_confirmacion = request.POST.get("email_confirmacion", "").strip().lower()
         telefono = request.POST.get("telefono", "").strip()
         notas = request.POST.get("notas", "").strip()
 
-        if not nombre or not email or not telefono:
-            messages.error(request, "Completa nombre, email y teléfono.")
+        if not nombre or not email or not email_confirmacion or not telefono:
+            messages.error(request, "Completa nombre, email, confirmación de email y teléfono.")
+            return redirect("reserva_datos")
+
+        if email != email_confirmacion:
+            messages.error(request, "Los emails no coinciden. Revisa los datos.")
             return redirect("reserva_datos")
 
         guardar_reserva_session(
@@ -926,9 +933,31 @@ def gestionar_reserva(request):
     return render(request, "reservas/gestionar_reserva.html", {"reservas": reservas})
 
 
+
+
 @require_POST
 def eliminar_reserva_cliente(request, reserva_id):
     reserva = get_object_or_404(Reserva, id=reserva_id)
+    if reserva.estado == "cancelada":
+        messages.error(
+        request,
+        "Esta reserva ya se encuentra cancelada."
+        )
+        return redirect("gestionar_reserva")
+
+    fecha_hora_reserva = timezone.make_aware(
+        datetime.combine(reserva.fecha, reserva.hora),
+        timezone.get_current_timezone(),
+    )
+
+    limite_cancelacion = fecha_hora_reserva - timedelta(hours=12)
+
+    if timezone.now() >= limite_cancelacion:
+        messages.error(
+            request,
+            "No es posible cancelar la reserva online con menos de 12 horas de antelación. Contacta con el restaurante."
+        )
+        return redirect("gestionar_reserva")
 
     reserva.estado = "cancelada"
 
@@ -952,16 +981,33 @@ def eliminar_reserva_cliente(request, reserva_id):
 def editar_reserva_cliente(request, reserva_id):
     reserva = get_object_or_404(Reserva, id=reserva_id)
 
+    if reserva.estado == "cancelada":
+        messages.error(request, "No se puede modificar una reserva cancelada.")
+        return redirect("gestionar_reserva")
+
     if request.method == "POST":
         accion = request.POST.get("accion")
 
         try:
             personas = int(request.POST.get("personas", 0))
             fecha = _fecha_desde_texto(request.POST.get("fecha"))
-            hora = _hora_desde_texto(request.POST.get("hora"))
         except (TypeError, ValueError):
             messages.error(request, "Datos de reserva no válidos.")
             return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+
+        servicio_form = request.POST.get("servicio") or reserva.servicio or periodo_de_hora(reserva.hora) or "comida"
+        hora_txt = request.POST.get("hora") or ""
+
+        # Si el cliente solo cambia personas y mantiene el mismo servicio,
+        # conservamos la hora original de la reserva.
+        if not hora_txt and servicio_form == (reserva.servicio or periodo_de_hora(reserva.hora)):
+            hora = reserva.hora
+        else:
+            try:
+                hora = _hora_desde_texto(hora_txt)
+            except (TypeError, ValueError):
+                messages.error(request, "Selecciona una hora válida.")
+                return redirect("editar_reserva_cliente", reserva_id=reserva.id)
 
         if personas < 1 or personas > MAX_PERSONAS_RESERVA:
             messages.error(request, f"Elige entre 1 y {MAX_PERSONAS_RESERVA} personas.")
@@ -970,6 +1016,22 @@ def editar_reserva_cliente(request, reserva_id):
         motivo_no_reservable = _motivo_fecha_no_reservable(fecha)
         if fecha < date.today() or motivo_no_reservable:
             messages.error(request, motivo_no_reservable or "No puedes reservar una fecha pasada.")
+            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+
+        servicio_hora = periodo_de_hora(hora)
+        if servicio_hora != servicio_form:
+            messages.error(request, "La hora seleccionada no pertenece al servicio elegido.")
+            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+
+        horas_disponibles = horas_llegada_para_turno(
+            fecha,
+            servicio_form,
+            excluir_reserva_id=reserva.id,
+        )
+
+        # Permitimos mantener la misma hora de la reserva aunque ya esté ocupada por ella misma.
+        if hora not in horas_disponibles and hora != reserva.hora:
+            messages.error(request, "Esa hora ya no está disponible.")
             return redirect("editar_reserva_cliente", reserva_id=reserva.id)
 
         zonas = zonas_disponibles(
@@ -989,7 +1051,9 @@ def editar_reserva_cliente(request, reserva_id):
                     "hoy": date.today(),
                     "personas_form": personas,
                     "fecha_form": fecha,
+                    "servicio_form": servicio_form,
                     "hora_form": hora,
+                    "horas_disponibles": horas_disponibles,
                     "zonas": zonas,
                     "mostrar_zonas": True,
                 },
@@ -1016,6 +1080,7 @@ def editar_reserva_cliente(request, reserva_id):
         reserva.personas = personas
         reserva.fecha = fecha
         reserva.hora = hora
+        reserva.servicio = periodo_de_hora(hora) or servicio_form
         reserva.zona = datos_zona["zona"]
         reserva.personas_barra = datos_zona["personas_barra"]
         reserva.personas_mesa = datos_zona["personas_mesa"]
@@ -1024,15 +1089,27 @@ def editar_reserva_cliente(request, reserva_id):
                 "personas",
                 "fecha",
                 "hora",
+                "servicio",
                 "zona",
                 "personas_barra",
                 "personas_mesa",
                 "actualizado",
             ]
         )
+
         _enviar_email_seguro(enviar_email_modificacion, reserva)
         messages.success(request, "Reserva modificada correctamente.")
         return redirect("gestionar_reserva")
+
+    servicio_inicial = reserva.servicio or periodo_de_hora(reserva.hora) or "comida"
+    horas_disponibles = horas_llegada_para_turno(
+        reserva.fecha,
+        servicio_inicial,
+        excluir_reserva_id=reserva.id,
+    )
+
+    if reserva.hora not in horas_disponibles:
+        horas_disponibles.insert(0, reserva.hora)
 
     return render(
         request,
@@ -1043,7 +1120,9 @@ def editar_reserva_cliente(request, reserva_id):
             "hoy": date.today(),
             "personas_form": reserva.personas,
             "fecha_form": reserva.fecha,
+            "servicio_form": servicio_inicial,
             "hora_form": reserva.hora,
+            "horas_disponibles": horas_disponibles,
             "zonas": [],
             "mostrar_zonas": False,
         },
