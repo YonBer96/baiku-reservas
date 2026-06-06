@@ -649,9 +649,15 @@ def staff_hoy(request):
         fecha = date.today()
 
     reservas = (
-        Reserva.objects
-        .filter(fecha=fecha)
-        .exclude(estado="cancelada")
+    Reserva.objects
+    .filter(
+        fecha=fecha,
+        estado__in=[
+            "pendiente_pago",
+            "confirmada",
+            "llegado",
+        ],
+     )
         .order_by("hora", "zona", "nombre")
     )
 
@@ -1135,8 +1141,14 @@ def staff_reservas_count(request):
 
     total = (
         Reserva.objects
-        .filter(fecha=fecha)
-        .exclude(estado="cancelada")
+        .filter(
+            fecha=fecha,
+            estado__in=[
+                "pendiente_pago",
+                "confirmada",
+                "llegado",
+            ],
+        )
         .count()
     )
 

@@ -206,7 +206,7 @@ def _rango_periodo(hora):
     periodo = periodo_de_hora(hora)
 
     if periodo == "comida":
-        return time(13, 0), time(15, 0)
+        return time(13, 0), time(16, 0)
 
     if periodo == "cena":
         return time(20, 0), time(22, 30)
