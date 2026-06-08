@@ -1090,6 +1090,7 @@ def editar_reserva_cliente(request, reserva_id):
         reserva.zona = datos_zona["zona"]
         reserva.personas_barra = datos_zona["personas_barra"]
         reserva.personas_mesa = datos_zona["personas_mesa"]
+        reserva.recordatorio_enviado = False
         reserva.save(
             update_fields=[
                 "personas",
