@@ -61,7 +61,7 @@ def obtener_turnos_reservables_para_fecha(fecha):
 
 def servicio_de_hora(hora):
     """Devuelve comida/cena según la hora de llegada."""
-    if time(13, 0) <= hora <= time(15, 0):
+    if time(13, 0) <= hora <= time(16, 0):
         return "comida"
     if time(20, 0) <= hora <= time(22, 30):
         return "cena"
@@ -582,11 +582,11 @@ def mapa_ocupacion(fecha):
 def horas_llegada_para_turno(fecha, turno, excluir_reserva_id=None):
     """Genera horas de llegada cada 15 minutos y elimina las ya ocupadas."""
     if turno == "comida":
-        inicio = time(13, 0)
-        fin = time(15, 0)
+        inicio = time(13, 15)
+        fin = time(15, 15)
     elif turno == "cena":
-        inicio = time(20, 0)
-        fin = time(22, 30)
+        inicio = time(20, 15)
+        fin = time(22, 15)
     else:
         return []
 
