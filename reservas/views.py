@@ -830,31 +830,23 @@ def gestionar_reserva(request):
 @require_POST
 def eliminar_reserva_cliente(request, reserva_id):
     reserva = get_object_or_404(Reserva, id=reserva_id)
+
     if reserva.estado == "cancelada":
         messages.error(
-        request,
-        "Esta reserva ya se encuentra cancelada."
-        )
-        return redirect("gestionar_reserva")
-
-    fecha_hora_reserva = timezone.make_aware(
-        datetime.combine(reserva.fecha, reserva.hora),
-        timezone.get_current_timezone(),
-    )
-
-    limite_cancelacion = fecha_hora_reserva - timedelta(hours=12)
-
-    if timezone.now() >= limite_cancelacion:
-        messages.error(
             request,
-            "No es posible cancelar la reserva online con menos de 12 horas de antelación. Contacta con el restaurante."
+            "Esta reserva ya se encuentra cancelada."
         )
         return redirect("gestionar_reserva")
 
     reserva.estado = "cancelada"
+    reserva.recordatorio_enviado = False
 
     reserva.save(
-        update_fields=["estado", "actualizado"]
+        update_fields=[
+            "estado",
+            "recordatorio_enviado",
+            "actualizado",
+        ]
     )
 
     _enviar_email_seguro(
