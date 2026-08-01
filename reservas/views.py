@@ -53,6 +53,12 @@ def calendario_reservas_api(request):
     """Devuelve próximos días con estado para calendario visual."""
     inicio_txt = request.GET.get("inicio")
     dias_txt = request.GET.get("dias", "90")
+    excluir_txt = request.GET.get("excluir_reserva_id")
+
+    try:
+        excluir_reserva_id = int(excluir_txt) if excluir_txt else None
+    except (TypeError, ValueError):
+        excluir_reserva_id = None
 
     try:
         fecha_inicio = _fecha_desde_texto(inicio_txt) if inicio_txt else date.today()
@@ -67,7 +73,7 @@ def calendario_reservas_api(request):
     datos = []
     for offset in range(dias):
         fecha = fecha_inicio + timedelta(days=offset)
-        resumen = resumen_calendario_dia(fecha)
+        resumen = resumen_calendario_dia(fecha, excluir_reserva_id)
         datos.append({
             "fecha": fecha.isoformat(),
             "dia": fecha.day,
@@ -76,10 +82,54 @@ def calendario_reservas_api(request):
             "vacantes": resumen["vacantes"],
             "total": resumen["total"],
             "bloqueado": resumen["bloqueado"],
-        })
+            "detalles": resumen["detalles"],
+            "mensaje": resumen["mensaje"],
+        })  
 
     return JsonResponse({"dias": datos})
 
+
+
+def horas_edicion_reserva_api(request, reserva_id):
+    """Devuelve las horas válidas al cambiar fecha o servicio al editar."""
+    reserva = get_object_or_404(Reserva, id=reserva_id)
+    fecha_txt = request.GET.get("fecha")
+    servicio = request.GET.get("servicio")
+
+    try:
+        fecha = _fecha_desde_texto(fecha_txt)
+    except (TypeError, ValueError):
+        return JsonResponse({"horas": [], "error": "Fecha no válida."}, status=400)
+
+    if fecha < timezone.localdate():
+        return JsonResponse({"horas": [], "error": "La fecha ya ha pasado."}, status=400)
+
+    motivo = _motivo_fecha_no_reservable(fecha)
+    if motivo:
+        return JsonResponse({"horas": [], "error": motivo}, status=400)
+
+    if servicio not in {"comida", "cena"}:
+        return JsonResponse({"horas": [], "error": "Servicio no válido."}, status=400)
+
+    horas = horas_llegada_para_turno(
+        fecha,
+        servicio,
+        excluir_reserva_id=reserva.id,
+    )
+
+    # Conserva la hora actual únicamente cuando sigue perteneciendo a la
+    # misma fecha y servicio. La propia reserva ya está excluida del cálculo.
+    servicio_actual = reserva.servicio or periodo_de_hora(reserva.hora)
+    if (
+        fecha == reserva.fecha
+        and servicio == servicio_actual
+        and reserva.hora not in horas
+    ):
+        horas.insert(0, reserva.hora)
+
+    return JsonResponse({
+        "horas": [hora.strftime("%H:%M") for hora in horas],
+    })
 
 def inicio(request):
     return render(request, "reservas/inicio.html")
@@ -689,31 +739,7 @@ def cambiar_estado(request, reserva_id):
     return redirect("staff_hoy")
 
 
-@login_required
-def staff_ocupacion(request):
-    fecha_txt = request.GET.get("fecha")
-    fecha = date.today()
 
-    if fecha_txt:
-        try:
-            fecha = _fecha_desde_texto(fecha_txt)
-        except ValueError:
-            messages.error(request, "Fecha no válida.")
-
-    motivo_no_reservable = _motivo_fecha_no_reservable(fecha)
-    turnos = [] if motivo_no_reservable else mapa_ocupacion(fecha)
-    bloqueado = BloqueoDia.objects.filter(fecha=fecha).first()
-
-    return render(
-        request,
-        "reservas/staff_ocupacion.html",
-        {
-            "fecha": fecha,
-            "turnos": turnos,
-            "bloqueado": bloqueado,
-            "motivo_no_reservable": motivo_no_reservable,
-        },
-    )
 
 
 @login_required
@@ -734,147 +760,7 @@ def bloquear_dia(request):
     return redirect(f"/staff/ocupacion/?fecha={fecha_txt}")
 
 
-@login_required
-def staff_nueva_reserva(request):
-    """Reserva manual staff:
-    1) Fecha
-    2) Personas
-    3) Servicio: comida/cena
-    4) Hora exacta de llegada
-    5) Zona
-    6) Datos cliente
-    """
-    fecha_txt = request.GET.get("fecha") or request.POST.get("fecha") or ""
-    personas_txt = request.GET.get("personas") or request.POST.get("personas") or ""
-    turno_tipo = request.GET.get("turno") or request.POST.get("turno") or ""
-    hora_txt = request.GET.get("hora") or request.POST.get("hora") or ""
-    zona = request.GET.get("zona") or request.POST.get("zona") or ""
 
-    fecha = None
-    personas = None
-    hora = None
-    turnos = []
-    horas_llegada = []
-    zonas_staff = []
-    hueco_elegido = None
-    motivo_no_reservable = ""
-
-    if fecha_txt:
-        try:
-            fecha = _fecha_desde_texto(fecha_txt)
-            motivo_no_reservable = _motivo_fecha_no_reservable(fecha)
-        except (TypeError, ValueError):
-            messages.error(request, "Fecha no válida.")
-            fecha = None
-
-    if personas_txt:
-        try:
-            personas = int(personas_txt)
-        except (TypeError, ValueError):
-            personas = None
-
-    if fecha and personas:
-        if personas < 1 or personas > MAX_PERSONAS_RESERVA:
-            messages.error(request, f"Elige entre 1 y {MAX_PERSONAS_RESERVA} personas.")
-        elif fecha < date.today():
-            messages.error(request, "No puedes crear una reserva en una fecha pasada.")
-        elif motivo_no_reservable:
-            turnos = []
-        else:
-            turnos = turnos_disponibles(fecha, personas)
-
-    if turno_tipo:
-        horas_llegada = horas_llegada_para_turno(fecha, turno_tipo) if fecha else []
-
-    if hora_txt:
-        try:
-            hora = _hora_desde_texto(hora_txt)
-        except (TypeError, ValueError):
-            messages.error(request, "Hora no válida.")
-            hora = None
-
-    if fecha and personas and hora:
-        zonas_staff = zonas_disponibles(fecha, hora, personas)
-
-    if fecha and personas and hora and zona:
-        if hay_disponibilidad(fecha, hora, personas, zona):
-            hueco_elegido = {
-                "fecha": fecha,
-                "personas": personas,
-                "turno_tipo": turno_tipo,
-                "hora": hora,
-                "zona": zona,
-                "zona_nombre": _normalizar_zona_para_guardar(zona, personas)["zona_nombre"],
-            }
-        else:
-            messages.error(request, "Ese hueco ya no está disponible. Elige otro.")
-            return redirect(
-                f"/staff/nueva-reserva/?fecha={fecha_txt}&personas={personas}&turno={turno_tipo}"
-            )
-
-    if request.method == "POST":
-        nombre = request.POST.get("nombre", "").strip()
-        email = request.POST.get("email", "").strip() or "staff@baiku.local"
-        telefono = request.POST.get("telefono", "").strip()
-        notas = request.POST.get("notas", "").strip()
-
-        if not hueco_elegido:
-            messages.error(request, "Primero elige un hueco disponible.")
-            return redirect("staff_nueva_reserva")
-
-        if not nombre or not telefono:
-            messages.error(request, "Completa nombre y teléfono.")
-            return redirect(
-                f"/staff/nueva-reserva/?fecha={fecha_txt}&personas={personas}&turno={turno_tipo}&hora={hora_txt}&zona={zona}"
-            )
-
-        if not hay_disponibilidad(fecha, hora, personas, zona):
-            messages.error(request, "Ese hueco ya no está disponible. Prueba otro turno.")
-            return redirect(
-                f"/staff/nueva-reserva/?fecha={fecha_txt}&personas={personas}&turno={turno_tipo}"
-            )
-
-        datos_zona = _normalizar_zona_para_guardar(zona, personas)
-
-        reserva = Reserva.objects.create(
-            nombre=nombre,
-            email=email,
-            telefono=telefono,
-            personas=personas,
-            fecha=fecha,
-            hora=hora,
-            servicio=periodo_de_hora(hora) or turno_tipo or "comida",
-            zona=datos_zona["zona"],
-            personas_barra=datos_zona["personas_barra"],
-            personas_mesa=datos_zona["personas_mesa"],
-            notas=notas,
-            estado="confirmada",
-            importe_anticipo=0,
-        )
-
-        _enviar_email_seguro(enviar_email_confirmacion, reserva)
-
-        messages.success(request, "Reserva manual creada correctamente.")
-        return redirect("staff_hoy")
-
-    return render(
-        request,
-        "reservas/staff_nueva_reserva.html",
-        {
-            "max_personas": MAX_PERSONAS_RESERVA,
-            "fecha": fecha,
-            "fecha_txt": fecha_txt,
-            "personas": personas,
-            "turnos": turnos,
-            "turno_tipo": turno_tipo,
-            "horas_llegada": horas_llegada,
-            "hora": hora,
-            "zonas_staff": zonas_staff,
-            "hoy": date.today(),
-            "hueco_elegido": hueco_elegido,
-            "motivo_no_reservable": motivo_no_reservable,
-        },
-    )
 
 @require_POST
 def confirmar_reserva(request):
@@ -1035,19 +921,20 @@ def editar_reserva_cliente(request, reserva_id):
             excluir_reserva_id=reserva.id,
         )
 
-        # Permitimos mantener la misma hora de la reserva aunque ya esté ocupada por ella misma.
-        if hora not in horas_disponibles and hora != reserva.hora:
+        # Solo se puede conservar la hora original cuando también se mantiene
+        # la fecha y el servicio originales. En otra fecha debe estar libre.
+        servicio_actual = reserva.servicio or periodo_de_hora(reserva.hora)
+        mantiene_hueco_original = (
+            fecha == reserva.fecha
+            and servicio_form == servicio_actual
+            and hora == reserva.hora
+        )
+
+        if hora not in horas_disponibles and not mantiene_hueco_original:
             messages.error(request, "Esa hora ya no está disponible.")
             return redirect("editar_reserva_cliente", reserva_id=reserva.id)
 
-        zonas = zonas_disponibles(
-            fecha,
-            hora,
-            personas,
-            excluir_reserva_id=reserva.id,
-        )
-
-        if accion == "buscar_zonas":
+        if accion == "volver_edicion":
             return render(
                 request,
                 "reservas/editar_reserva_cliente.html",
@@ -1060,8 +947,27 @@ def editar_reserva_cliente(request, reserva_id):
                     "servicio_form": servicio_form,
                     "hora_form": hora,
                     "horas_disponibles": horas_disponibles,
+                },
+            )
+
+        zonas = zonas_disponibles(
+            fecha,
+            hora,
+            personas,
+            excluir_reserva_id=reserva.id,
+        )
+
+        if accion == "buscar_zonas":
+            return render(
+                request,
+                "reservas/editar_reserva_zona_cliente.html",
+                {
+                    "reserva": reserva,
+                    "personas_form": personas,
+                    "fecha_form": fecha,
+                    "servicio_form": servicio_form,
+                    "hora_form": hora,
                     "zonas": zonas,
-                    "mostrar_zonas": True,
                 },
             )
 
@@ -1100,6 +1006,7 @@ def editar_reserva_cliente(request, reserva_id):
                 "zona",
                 "personas_barra",
                 "personas_mesa",
+                "recordatorio_enviado",
                 "actualizado",
             ]
         )

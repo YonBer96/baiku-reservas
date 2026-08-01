@@ -18,9 +18,9 @@
         <strong>Total personas:</strong> {{ total_personas }}
     </p>
 
-    <a class="button" href="{% url 'staff_nueva_reserva' %}">Crear reserva manual</a>
-    <br>
-    <a class="option-button" href="{% url 'staff_ocupacion' %}">Ver ocupación</a>
+    
+    
+    
 </div>
 
 {% regroup reservas by hora as reservas_por_hora %}
@@ -35,6 +35,12 @@
             <strong>{{ r.nombre }}</strong><br>
             {{ r.personas }} pax · {{ r.zona_detalle }} · {{ r.telefono }}<br>
             <span class="muted">{{ r.estado }}</span>
+
+            {% if r.notas %}
+            <div class="reserva-notas">
+                <strong>Observaciones:</strong> {{ r.notas }}
+            </div>
+            {% endif %}
         </div>
 
         <div class="acciones">

@@ -1,0 +1,64 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Elige una zona</h2>
+    <p class="helper-text">
+        Estas son las zonas disponibles para los datos seleccionados.
+    </p>
+
+    <div class="calendar-availability-info" aria-label="Resumen de la modificación">
+        <p><strong>{{ fecha_form|date:"l, j \d\e F \d\e Y"|capfirst }}</strong></p>
+        <p>
+            {{ personas_form }} persona{{ personas_form|pluralize }} ·
+            {{ servicio_form|capfirst }} ·
+            {{ hora_form|time:"H:i" }}
+        </p>
+    </div>
+
+    <form method="post"
+          action="{% url 'editar_reserva_cliente' reserva.id %}"
+          class="form-vertical">
+        {% csrf_token %}
+
+        <input type="hidden" name="personas" value="{{ personas_form }}">
+        <input type="hidden" name="fecha" value="{{ fecha_form|date:'Y-m-d' }}">
+        <input type="hidden" name="hora" value="{{ hora_form|time:'H:i' }}">
+        <input type="hidden" name="servicio" value="{{ servicio_form }}">
+
+        {% for z in zonas %}
+        <button class="option-button" type="submit" name="zona" value="{{ z.id }}">
+            <strong>{{ z.nombre }}</strong>
+
+            {% if z.descripcion %}
+            <span>{{ z.descripcion }}</span>
+            {% endif %}
+
+            <small>{{ z.plazas_libres }} plazas disponibles</small>
+        </button>
+        {% empty %}
+        <div class="calendar-availability-info">
+            <p class="availability-full">
+                Ya no hay zonas disponibles para esos datos.
+            </p>
+        </div>
+        {% endfor %}
+    </form>
+
+    <form method="post"
+          action="{% url 'editar_reserva_cliente' reserva.id %}"
+          class="form-vertical">
+        {% csrf_token %}
+
+        <input type="hidden" name="accion" value="volver_edicion">
+        <input type="hidden" name="personas" value="{{ personas_form }}">
+        <input type="hidden" name="fecha" value="{{ fecha_form|date:'Y-m-d' }}">
+        <input type="hidden" name="hora" value="{{ hora_form|time:'H:i' }}">
+        <input type="hidden" name="servicio" value="{{ servicio_form }}">
+
+        <button type="submit" class="option-button">
+            ← Volver y modificar datos
+        </button>
+    </form>
+</div>
+{% endblock %}

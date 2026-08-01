@@ -7,8 +7,9 @@
     <form method="post" class="form-vertical">
         {% csrf_token %}
 
-        <label>Personas</label>
-        <input name="personas"
+        <label for="editar-personas">Personas</label>
+        <input id="editar-personas"
+               name="personas"
                type="number"
                min="1"
                max="{{ max_personas }}"
@@ -19,9 +20,15 @@
 
         <div id="mini-calendar"
              class="mini-calendar"
-             data-api="{% url 'calendario_reservas_api' %}"
-             data-selected="{{ fecha_form|date:'Y-m-d' }}">
+             data-api="{% url 'calendario_reservas_api' %}?excluir_reserva_id={{ reserva.id }}"
+             data-hours-api="{% url 'horas_edicion_reserva_api' reserva.id %}">
             <p class="muted">Cargando calendario...</p>
+        </div>
+
+        <div id="calendar-availability-info"
+             class="calendar-availability-info"
+             aria-live="polite">
+            Selecciona un día para consultar las plazas disponibles.
         </div>
 
         <input id="editar-fecha"
@@ -30,219 +37,307 @@
                value="{{ fecha_form|date:'Y-m-d' }}"
                required>
 
-        <label>Servicio</label>
-
+        <label for="editar-servicio">Servicio</label>
         <select name="servicio" id="editar-servicio" class="input" required>
             <option value="comida" {% if servicio_form == "comida" %}selected{% endif %}>Comida</option>
             <option value="cena" {% if servicio_form == "cena" %}selected{% endif %}>Cena</option>
         </select>
 
-        <label>Hora</label>
-
-        <select name="hora" class="input" required>
+        <label for="editar-hora">Hora</label>
+        <select name="hora" id="editar-hora" class="input" required>
             {% for h in horas_disponibles %}
             <option value="{{ h|time:'H:i' }}" {% if hora_form == h %}selected{% endif %}>
                 {{ h|time:"H:i" }}
             </option>
             {% empty %}
-            <option value="{{ hora_form|time:'H:i' }}" selected>
-                {{ hora_form|time:"H:i" }}
-            </option>
+            <option value="">No hay horas disponibles</option>
             {% endfor %}
         </select>
+
+        <p id="hours-status" class="muted" aria-live="polite"></p>
 
         <button class="button" name="accion" value="buscar_zonas">
             Buscar zonas disponibles
         </button>
     </form>
 
-    {% if mostrar_zonas %}
-    <hr>
-
-    <h3>Elige una zona disponible</h3>
-
-    <form method="post" class="form-vertical">
-        {% csrf_token %}
-
-        <input type="hidden" name="personas" value="{{ personas_form }}">
-        <input type="hidden" name="fecha" value="{{ fecha_form|date:'Y-m-d' }}">
-        <input type="hidden" name="hora" value="{{ hora_form|time:'H:i' }}">
-        <input type="hidden" name="servicio" value="{{ servicio_form }}">
-
-        {% for z in zonas %}
-        <button class="option-button" name="zona" value="{{ z.id }}">
-            <strong>{{ z.nombre }}</strong>
-
-            {% if z.descripcion %}
-            <span>{{ z.descripcion }}</span>
-            {% endif %}
-
-            <small>{{ z.plazas_libres }} plazas disponibles</small>
-        </button>
-        {% empty %}
-        <p class="muted">No hay zonas disponibles para esos datos.</p>
-        {% endfor %}
-    </form>
-    {% endif %}
 </div>
 
 <script>
-    (function () {
-        const inputFecha = document.getElementById("editar-fecha");
-        const calendar = document.getElementById("mini-calendar");
+(function () {
+    const calendar = document.getElementById("mini-calendar");
+    const inputFecha = document.getElementById("editar-fecha");
+    const servicioSelect = document.getElementById("editar-servicio");
+    const horaSelect = document.getElementById("editar-hora");
+    const info = document.getElementById("calendar-availability-info");
+    const hoursStatus = document.getElementById("hours-status");
 
-        if (!calendar || !inputFecha) return;
+    if (!calendar || !inputFecha || !servicioSelect || !horaSelect) return;
 
-        const apiUrl = calendar.dataset.api;
-        let calendarData = [];
+    const calendarApiUrl = calendar.dataset.api;
+    const hoursApiUrl = calendar.dataset.hoursApi;
+    const initialHour = "{{ hora_form|time:'H:i' }}";
+    let calendarData = [];
 
-        let currentDate = inputFecha.value
-            ? new Date(inputFecha.value)
-            : new Date();
+    const monthNames = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ];
 
-        const today = new Date();
+    function parseLocalDate(isoDate) {
+        const [year, month, day] = isoDate.split("-").map(Number);
+        return new Date(year, month - 1, day);
+    }
 
-        const maxDate = new Date();
-        maxDate.setMonth(maxDate.getMonth() + 3);
+    function toISODate(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+    }
 
-        const monthNames = [
-            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-        ];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-        function toISODate(date) {
-            const y = date.getFullYear();
-            const m = String(date.getMonth() + 1).padStart(2, "0");
-            const d = String(date.getDate()).padStart(2, "0");
-            return `${y}-${m}-${d}`;
+    const maxDate = new Date(today);
+    maxDate.setDate(maxDate.getDate() + 89);
+
+    let currentDate = inputFecha.value ? parseLocalDate(inputFecha.value) : new Date(today);
+
+    function getDayData(isoDate) {
+        return calendarData.find(day => day.fecha === isoDate);
+    }
+
+    function sameMonthOrBefore(dateA, dateB) {
+        return dateA.getFullYear() < dateB.getFullYear()
+            || (dateA.getFullYear() === dateB.getFullYear() && dateA.getMonth() <= dateB.getMonth());
+    }
+
+    function sameMonthOrAfter(dateA, dateB) {
+        return dateA.getFullYear() > dateB.getFullYear()
+            || (dateA.getFullYear() === dateB.getFullYear() && dateA.getMonth() >= dateB.getMonth());
+    }
+
+    function mostrarDisponibilidadDia(day, isoDate) {
+        if (!info) return;
+
+        if (!day) {
+            info.innerHTML = '<p class="availability-closed">No se pudo consultar la disponibilidad.</p>';
+            return;
         }
 
-        function getDayData(isoDate) {
-            return calendarData.find(day => day.fecha === isoDate);
+        const fechaTexto = parseLocalDate(isoDate).toLocaleDateString("es-ES", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+            year: "numeric"
+        });
+
+        if (day.estado === "pasado" || day.bloqueado || day.estado === "cerrado") {
+            info.innerHTML = `
+                <p><strong>${fechaTexto}</strong></p>
+                <p class="availability-closed">${day.mensaje || "Esta fecha no está disponible."}</p>
+            `;
+            return;
         }
 
-        function sameMonthOrBefore(dateA, dateB) {
-            return (
-                dateA.getFullYear() < dateB.getFullYear() ||
-                (
-                    dateA.getFullYear() === dateB.getFullYear() &&
-                    dateA.getMonth() <= dateB.getMonth()
-                )
-            );
+        if (day.estado === "completo" || !day.detalles || day.detalles.length === 0) {
+            info.innerHTML = `
+                <p><strong>${fechaTexto}</strong></p>
+                <p class="availability-full">No hay plazas disponibles para este día.</p>
+            `;
+            return;
         }
 
-        function sameMonthOrAfter(dateA, dateB) {
-            return (
-                dateA.getFullYear() > dateB.getFullYear() ||
-                (
-                    dateA.getFullYear() === dateB.getFullYear() &&
-                    dateA.getMonth() >= dateB.getMonth()
-                )
-            );
+        const detallesHtml = day.detalles.map(detalle => {
+            const servicio = String(detalle.servicio || "").toUpperCase();
+
+            if (detalle.total_libre <= 0) {
+                return `
+                    <div class="availability-service">
+                        <strong>${servicio}</strong>
+                        <span class="availability-full">No hay plazas disponibles.</span>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="availability-service">
+                    <strong>${servicio}</strong>
+                    <span>Barra: ${detalle.barra_libre} plazas libres</span>
+                    <span>Mesa: ${detalle.mesa_libre} plazas libres</span>
+                </div>
+            `;
+        }).join("");
+
+        info.innerHTML = `
+            <p><strong>Disponibilidad para ${fechaTexto}</strong></p>
+            ${detallesHtml}
+        `;
+    }
+
+    async function actualizarHoras(preferredHour = "") {
+        const fecha = inputFecha.value;
+        const servicio = servicioSelect.value;
+
+        horaSelect.disabled = true;
+        hoursStatus.textContent = "Consultando horas disponibles...";
+
+        if (!fecha || !servicio) {
+            horaSelect.innerHTML = '<option value="">Selecciona fecha y servicio</option>';
+            hoursStatus.textContent = "";
+            return;
         }
 
-        function renderMonth() {
-            calendar.innerHTML = `
+        try {
+            const url = new URL(hoursApiUrl, window.location.origin);
+            url.searchParams.set("fecha", fecha);
+            url.searchParams.set("servicio", servicio);
+
+            const response = await fetch(url, {headers: {"X-Requested-With": "XMLHttpRequest"}});
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "No se pudieron consultar las horas.");
+            }
+
+            horaSelect.innerHTML = "";
+
+            if (!data.horas || data.horas.length === 0) {
+                horaSelect.innerHTML = '<option value="">No hay horas disponibles</option>';
+                hoursStatus.textContent = "No quedan horas disponibles para ese servicio.";
+                return;
+            }
+
+            data.horas.forEach(hora => {
+                const option = document.createElement("option");
+                option.value = hora;
+                option.textContent = hora;
+                option.selected = hora === preferredHour;
+                horaSelect.appendChild(option);
+            });
+
+            horaSelect.disabled = false;
+            hoursStatus.textContent = "";
+        } catch (error) {
+            horaSelect.innerHTML = '<option value="">No hay horas disponibles</option>';
+            hoursStatus.textContent = error.message;
+        }
+    }
+
+    function renderMonth() {
+        calendar.innerHTML = `
             <div class="calendar-header mini">
                 <button type="button" id="mini-prev-month" class="calendar-nav">‹</button>
                 <strong>${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}</strong>
                 <button type="button" id="mini-next-month" class="calendar-nav">›</button>
             </div>
-
             <div class="calendar-weekdays">
                 <span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span>
             </div>
-
             <div class="calendar-grid calendar-month" id="mini-calendar-grid"></div>
         `;
 
-            const grid = document.getElementById("mini-calendar-grid");
-            const prevBtn = document.getElementById("mini-prev-month");
-            const nextBtn = document.getElementById("mini-next-month");
+        const grid = document.getElementById("mini-calendar-grid");
+        const prevBtn = document.getElementById("mini-prev-month");
+        const nextBtn = document.getElementById("mini-next-month");
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
 
-            const year = currentDate.getFullYear();
-            const month = currentDate.getMonth();
+        let startOffset = firstDay.getDay() - 1;
+        if (startOffset < 0) startOffset = 6;
 
-            const firstDay = new Date(year, month, 1);
-            const lastDay = new Date(year, month + 1, 0);
-
-            let startOffset = firstDay.getDay() - 1;
-            if (startOffset < 0) startOffset = 6;
-
-            for (let i = 0; i < startOffset; i++) {
-                const empty = document.createElement("div");
-                empty.className = "calendar-empty";
-                grid.appendChild(empty);
-            }
-
-            for (let dayNumber = 1; dayNumber <= lastDay.getDate(); dayNumber++) {
-                const date = new Date(year, month, dayNumber);
-                const isoDate = toISODate(date);
-                const day = getDayData(isoDate);
-
-                const button = document.createElement("button");
-                button.type = "button";
-                button.className = "calendar-day-month";
-                button.dataset.fecha = isoDate;
-                button.innerHTML = `<span>${dayNumber}</span>`;
-
-                if (!day || date < new Date(today.getFullYear(), today.getMonth(), today.getDate()) || date > maxDate) {
-                    button.classList.add("pasado");
-                    button.disabled = true;
-                } else {
-                    button.classList.add(day.estado);
-                    button.disabled =
-                        day.bloqueado ||
-                        day.estado === "completo" ||
-                        day.estado === "pasado";
-                }
-
-                if (inputFecha.value === isoDate) {
-                    button.classList.add("selected");
-                }
-
-                button.addEventListener("click", () => {
-                    inputFecha.value = isoDate;
-
-                    document.querySelectorAll(".calendar-day-month.selected")
-                        .forEach(el => el.classList.remove("selected"));
-
-                    button.classList.add("selected");
-                });
-
-                grid.appendChild(button);
-            }
-
-            const prevMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
-            const nextMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
-            const todayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-            const maxMonth = new Date(maxDate.getFullYear(), maxDate.getMonth(), 1);
-
-            prevBtn.disabled = !sameMonthOrAfter(prevMonth, todayMonth);
-            nextBtn.disabled = !sameMonthOrBefore(nextMonth, maxMonth);
-
-            prevBtn.addEventListener("click", () => {
-                if (prevBtn.disabled) return;
-                currentDate = prevMonth;
-                renderMonth();
-            });
-
-            nextBtn.addEventListener("click", () => {
-                if (nextBtn.disabled) return;
-                currentDate = nextMonth;
-                renderMonth();
-            });
+        for (let i = 0; i < startOffset; i++) {
+            const empty = document.createElement("div");
+            empty.className = "calendar-empty";
+            grid.appendChild(empty);
         }
 
-        fetch(apiUrl)
-            .then(response => response.json())
-            .then(data => {
-                calendarData = data.dias || [];
-                renderMonth();
-            })
-            .catch(() => {
-                calendar.innerHTML = '<p class="muted">No se pudo cargar el calendario.</p>';
+        for (let dayNumber = 1; dayNumber <= lastDay.getDate(); dayNumber++) {
+            const date = new Date(year, month, dayNumber);
+            const isoDate = toISODate(date);
+            const day = getDayData(isoDate);
+            const button = document.createElement("button");
+
+            button.type = "button";
+            button.className = "calendar-day-month";
+            button.dataset.fecha = isoDate;
+            button.innerHTML = `<span>${dayNumber}</span>`;
+
+            if (!day || date < today || date > maxDate) {
+                button.classList.add("pasado");
+                button.disabled = true;
+            } else {
+                button.classList.add(day.estado);
+                button.disabled = day.bloqueado
+                    || day.estado === "completo"
+                    || day.estado === "pasado"
+                    || day.estado === "cerrado";
+            }
+
+            if (inputFecha.value === isoDate) {
+                button.classList.add("selected");
+            }
+
+            button.addEventListener("click", () => {
+                inputFecha.value = isoDate;
+
+                document.querySelectorAll(".calendar-day-month.selected")
+                    .forEach(element => element.classList.remove("selected"));
+
+                button.classList.add("selected");
+                mostrarDisponibilidadDia(day, isoDate);
+                actualizarHoras();
             });
-    })();
+
+            grid.appendChild(button);
+        }
+
+        const prevMonth = new Date(year, month - 1, 1);
+        const nextMonth = new Date(year, month + 1, 1);
+        const todayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const maxMonth = new Date(maxDate.getFullYear(), maxDate.getMonth(), 1);
+
+        prevBtn.disabled = !sameMonthOrAfter(prevMonth, todayMonth);
+        nextBtn.disabled = !sameMonthOrBefore(nextMonth, maxMonth);
+
+        prevBtn.addEventListener("click", () => {
+            if (!prevBtn.disabled) {
+                currentDate = prevMonth;
+                renderMonth();
+            }
+        });
+
+        nextBtn.addEventListener("click", () => {
+            if (!nextBtn.disabled) {
+                currentDate = nextMonth;
+                renderMonth();
+            }
+        });
+    }
+
+    servicioSelect.addEventListener("change", () => actualizarHoras());
+
+    fetch(calendarApiUrl)
+        .then(response => {
+            if (!response.ok) throw new Error();
+            return response.json();
+        })
+        .then(data => {
+            calendarData = data.dias || [];
+            renderMonth();
+
+            if (inputFecha.value) {
+                mostrarDisponibilidadDia(getDayData(inputFecha.value), inputFecha.value);
+            }
+
+            return actualizarHoras(initialHour);
+        })
+        .catch(() => {
+            calendar.innerHTML = '<p class="muted">No se pudo cargar el calendario.</p>';
+        });
+})();
 </script>
 {% endblock %}

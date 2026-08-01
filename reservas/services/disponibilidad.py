@@ -604,12 +604,10 @@ def horas_llegada_para_turno(fecha, turno, excluir_reserva_id=None):
     return horas
 
 
-def resumen_calendario_dia(fecha):
+def resumen_calendario_dia(fecha, excluir_reserva_id=None):
     """
-    Estado del calendario según ocupación REAL del restaurante.
-    Verde = mucho sitio
-    Amarillo = pocas plazas
-    Rojo = completo o casi completo
+    Devuelve el estado visual del día y las plazas disponibles
+    de barra y mesa para cada servicio.
     """
 
     if fecha < timezone.localdate():
@@ -618,6 +616,8 @@ def resumen_calendario_dia(fecha):
             "vacantes": 0,
             "total": CAPACIDAD_TOTAL,
             "bloqueado": True,
+            "detalles": [],
+            "mensaje": "Esta fecha ya ha pasado.",
         }
 
     if dia_bloqueado(fecha) or fecha.weekday() in [0, 1]:
@@ -626,36 +626,67 @@ def resumen_calendario_dia(fecha):
             "vacantes": 0,
             "total": CAPACIDAD_TOTAL,
             "bloqueado": True,
+            "detalles": [],
+            "mensaje": "El restaurante está cerrado este día.",
         }
 
+    detalles = []
     max_libres = 0
 
     for turno_base in obtener_turnos_reservables_para_fecha(fecha):
+        servicio = "Cena" if turno_base == time(20, 0) else "Comida"
 
-        barra_ocupada = personas_reservadas(fecha, turno_base, "barra")
-        mesa_ocupada = personas_reservadas(fecha, turno_base, "mesa")
+        barra_ocupada = personas_reservadas(
+            fecha,
+            turno_base,
+            "barra",
+            excluir_reserva_id,
+        )
 
-        barra_libre = max(CAPACIDAD_BARRA - barra_ocupada, 0)
-        mesa_libre = max(CAPACIDAD_MESA - mesa_ocupada, 0)
+        mesa_ocupada = personas_reservadas(
+            fecha,
+            turno_base,
+            "mesa",
+            excluir_reserva_id,
+        )
 
-        libres_turno = barra_libre + mesa_libre
+        barra_libre = max(
+            CAPACIDAD_BARRA - barra_ocupada,
+            0,
+        )
 
-        max_libres = max(max_libres, libres_turno)
+        mesa_libre = max(
+            CAPACIDAD_MESA - mesa_ocupada,
+            0,
+        )
 
-    vacantes = max_libres
+        total_libre = barra_libre + mesa_libre
+        max_libres = max(max_libres, total_libre)
 
-    if vacantes <= 0:
+        detalles.append({
+            "servicio": servicio,
+            "barra_libre": barra_libre,
+            "mesa_libre": mesa_libre,
+            "total_libre": total_libre,
+        })
+
+    if max_libres <= 0:
         estado = "completo"
+        mensaje = "No hay plazas disponibles."
 
-    elif vacantes <= 4:
+    elif max_libres <= 4:
         estado = "pocas"
+        mensaje = "Quedan pocas plazas disponibles."
 
     else:
         estado = "disponible"
+        mensaje = "Hay plazas disponibles."
 
     return {
         "estado": estado,
-        "vacantes": vacantes,
+        "vacantes": max_libres,
         "total": CAPACIDAD_TOTAL,
         "bloqueado": False,
+        "detalles": detalles,
+        "mensaje": mensaje,
     }

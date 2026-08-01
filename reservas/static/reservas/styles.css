@@ -738,3 +738,40 @@ textarea {
         opacity: 1;
         cursor: not-allowed;
     }
+
+.calendar-availability-info {
+    margin-top: 18px;
+    padding: 14px 16px;
+    border-top: 1px solid #e8e0d7;
+    line-height: 1.5;
+}
+
+.availability-service {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 12px;
+}
+
+    .availability-service:last-child {
+        margin-bottom: 0;
+    }
+
+    .availability-service strong {
+        font-size: 1rem;
+    }
+
+    .availability-service span {
+        color: #666;
+    }
+
+.availability-full {
+    margin: 0;
+    font-weight: 600;
+    color: #a42525;
+}
+
+.availability-closed {
+    margin: 0;
+    color: #666;
+}

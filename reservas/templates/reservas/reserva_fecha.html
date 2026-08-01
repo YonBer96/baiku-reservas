@@ -5,12 +5,27 @@
 
 <div class="card">
     <h2>Fecha</h2>
-    <p class="helper-text">Elige el día. El color indica la disponibilidad general.</p>
+
+    <p class="helper-text">
+        Elige el día. El color indica la disponibilidad general.
+    </p>
 
     <div class="calendar-header">
-        <button type="button" id="prev-month" class="calendar-nav">‹</button>
+        <button type="button"
+                id="prev-month"
+                class="calendar-nav"
+                aria-label="Mes anterior">
+            ‹
+        </button>
+
         <strong id="calendar-title"></strong>
-        <button type="button" id="next-month" class="calendar-nav">›</button>
+
+        <button type="button"
+                id="next-month"
+                class="calendar-nav"
+                aria-label="Mes siguiente">
+            ›
+        </button>
     </div>
 
     <div class="calendar-weekdays">
@@ -29,6 +44,14 @@
         <p class="muted">Cargando calendario...</p>
     </div>
 
+    <div id="calendar-availability-info"
+         class="calendar-availability-info"
+         aria-live="polite">
+        <p class="muted">
+            Selecciona un día para consultar las plazas disponibles.
+        </p>
+    </div>
+
     <form method="post" id="fecha-form">
         {% csrf_token %}
 
@@ -38,45 +61,263 @@
                min="{{ hoy|date:'Y-m-d' }}"
                required>
 
-        <button class="button">Continuar</button>
+        <button id="continuar-button"
+                class="button"
+                type="submit"
+                disabled>
+            Continuar
+        </button>
     </form>
 
     <div class="calendar-legend">
-        <span><i class="legend-dot disponible"></i> Disponible</span>
-        <span><i class="legend-dot pocas"></i> Pocas plazas</span>
-        <span><i class="legend-dot completo"></i> Completo</span>
-        <span><i class="legend-dot cerrado"></i> Cerrado</span>
+        <span>
+            <i class="legend-dot disponible"></i>
+            Disponible
+        </span>
+
+        <span>
+            <i class="legend-dot pocas"></i>
+            Pocas plazas
+        </span>
+
+        <span>
+            <i class="legend-dot completo"></i>
+            Completo
+        </span>
+
+        <span>
+            <i class="legend-dot cerrado"></i>
+            Cerrado
+        </span>
     </div>
 
-    <a class="back-link" href="{% url 'inicio' %}">Volver</a>
+    <a class="back-link" href="{% url 'inicio' %}">
+        Volver
+    </a>
 </div>
 
 <script>
     (function () {
         const fechaReserva = document.getElementById("fecha-reserva");
+        const fechaForm = document.getElementById("fecha-form");
+        const continuarButton = document.getElementById("continuar-button");
         const grid = document.getElementById("calendar-grid");
-        const apiUrl = grid?.dataset.api;
+        const info = document.getElementById("calendar-availability-info");
         const title = document.getElementById("calendar-title");
         const prevBtn = document.getElementById("prev-month");
         const nextBtn = document.getElementById("next-month");
 
-        let currentDate = new Date();
+        if (
+            !fechaReserva ||
+            !fechaForm ||
+            !continuarButton ||
+            !grid ||
+            !info ||
+            !title ||
+            !prevBtn ||
+            !nextBtn
+        ) {
+            return;
+        }
+
+        const apiUrl = grid.dataset.api;
+
+        if (!apiUrl) {
+            grid.innerHTML = `
+                <p class="muted">
+                    No se ha podido configurar el calendario.
+                </p>
+            `;
+            return;
+        }
+
+        const hoy = new Date();
+        const primerMesPermitido = new Date(
+            hoy.getFullYear(),
+            hoy.getMonth(),
+            1
+        );
+
+        let currentDate = new Date(
+            hoy.getFullYear(),
+            hoy.getMonth(),
+            1
+        );
+
         let calendarData = [];
 
         const monthNames = [
-            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+            "Enero",
+            "Febrero",
+            "Marzo",
+            "Abril",
+            "Mayo",
+            "Junio",
+            "Julio",
+            "Agosto",
+            "Septiembre",
+            "Octubre",
+            "Noviembre",
+            "Diciembre"
         ];
 
         function toISODate(date) {
-            const y = date.getFullYear();
-            const m = String(date.getMonth() + 1).padStart(2, "0");
-            const d = String(date.getDate()).padStart(2, "0");
-            return `${y}-${m}-${d}`;
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, "0");
+            const day = String(date.getDate()).padStart(2, "0");
+
+            return `${year}-${month}-${day}`;
         }
 
         function getDayData(isoDate) {
-            return calendarData.find(day => day.fecha === isoDate);
+            return calendarData.find(
+                day => day.fecha === isoDate
+            );
+        }
+
+        function esDiaReservable(day) {
+            return Boolean(
+                day &&
+                !day.bloqueado &&
+                day.estado !== "completo" &&
+                day.estado !== "cerrado" &&
+                day.estado !== "pasado"
+            );
+        }
+
+        function limpiarSeleccion() {
+            fechaReserva.value = "";
+            continuarButton.disabled = true;
+
+            document
+                .querySelectorAll(".calendar-day-month.selected")
+                .forEach(element => {
+                    element.classList.remove("selected");
+                });
+        }
+
+        function textoPlazas(cantidad) {
+            return cantidad === 1
+                ? "1 plaza libre"
+                : `${cantidad} plazas libres`;
+        }
+
+        function mostrarDisponibilidadDia(day, isoDate) {
+            if (!day) {
+                info.innerHTML = `
+                    <p class="availability-closed">
+                        No se pudo consultar la disponibilidad de esta fecha.
+                    </p>
+                `;
+                return;
+            }
+
+            const fechaTexto = new Date(
+                `${isoDate}T12:00:00`
+            ).toLocaleDateString("es-ES", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+                year: "numeric"
+            });
+
+            if (
+                day.estado === "pasado" ||
+                day.bloqueado ||
+                day.estado === "cerrado"
+            ) {
+                info.innerHTML = `
+                    <p class="availability-date">
+                        <strong>
+                            ${fechaTexto}
+                        </strong>
+                    </p>
+
+                    <p class="availability-closed">
+                        ${day.mensaje || "Esta fecha no está disponible."}
+                    </p>
+                `;
+                return;
+            }
+
+            if (
+                day.estado === "completo" ||
+                !day.detalles ||
+                day.detalles.length === 0 ||
+                day.detalles.every(
+                    detalle => detalle.total_libre <= 0
+                )
+            ) {
+                info.innerHTML = `
+                    <p class="availability-date">
+                        <strong>
+                            ${fechaTexto}
+                        </strong>
+                    </p>
+
+                    <p class="availability-full">
+                        No hay plazas disponibles para este día.
+                    </p>
+                `;
+                return;
+            }
+
+            const detallesHtml = day.detalles
+                .map(detalle => {
+                    const servicio = String(
+                        detalle.servicio || ""
+                    ).toUpperCase();
+
+                    if (detalle.total_libre <= 0) {
+                        return `
+                            <div class="availability-service">
+                                <strong>${servicio}</strong>
+
+                                <span class="availability-full">
+                                    No hay plazas disponibles.
+                                </span>
+                            </div>
+                        `;
+                    }
+
+                    return `
+                        <div class="availability-service">
+                            <strong>${servicio}</strong>
+
+                            <span>
+                                Barra:
+                                ${textoPlazas(detalle.barra_libre)}
+                            </span>
+
+                            <span>
+                                Mesa:
+                                ${textoPlazas(detalle.mesa_libre)}
+                            </span>
+                        </div>
+                    `;
+                })
+                .join("");
+
+            info.innerHTML = `
+                <p class="availability-date">
+                    <strong>
+                        Disponibilidad para ${fechaTexto}
+                    </strong>
+                </p>
+
+                ${detallesHtml}
+            `;
+        }
+
+        function actualizarBotonesNavegacion() {
+            const mesAnterior = new Date(
+                currentDate.getFullYear(),
+                currentDate.getMonth() - 1,
+                1
+            );
+
+            prevBtn.disabled =
+                mesAnterior < primerMesPermitido;
         }
 
         function renderMonth() {
@@ -85,80 +326,164 @@
             const year = currentDate.getFullYear();
             const month = currentDate.getMonth();
 
-            title.textContent = `${monthNames[month]} ${year}`;
+            title.textContent =
+                `${monthNames[month]} ${year}`;
 
             const firstDay = new Date(year, month, 1);
             const lastDay = new Date(year, month + 1, 0);
 
             let startOffset = firstDay.getDay() - 1;
-            if (startOffset < 0) startOffset = 6;
 
-            for (let i = 0; i < startOffset; i++) {
+            if (startOffset < 0) {
+                startOffset = 6;
+            }
+
+            for (let index = 0; index < startOffset; index++) {
                 const empty = document.createElement("div");
                 empty.className = "calendar-empty";
                 grid.appendChild(empty);
             }
 
-            for (let dayNumber = 1; dayNumber <= lastDay.getDate(); dayNumber++) {
-                const date = new Date(year, month, dayNumber);
+            for (
+                let dayNumber = 1;
+                dayNumber <= lastDay.getDate();
+                dayNumber++
+            ) {
+                const date = new Date(
+                    year,
+                    month,
+                    dayNumber
+                );
+
                 const isoDate = toISODate(date);
                 const day = getDayData(isoDate);
 
                 const button = document.createElement("button");
+
                 button.type = "button";
                 button.className = "calendar-day-month";
-
-                if (!day) {
-                    button.classList.add("cerrado");
-                    button.disabled = true;
-                } else {
-                    button.classList.add(day.estado);
-                    button.disabled = day.bloqueado || day.estado === "completo" || day.estado === "pasado";
-
-                    button.title = day.bloqueado
-                        ? "Cerrado"
-                        : day.estado === "completo"
-                            ? "Completo"
-                            : `${day.vacantes} plazas disponibles`;
-                }
-
                 button.dataset.fecha = isoDate;
                 button.innerHTML = `<span>${dayNumber}</span>`;
 
-                if (fechaReserva.value === isoDate) {
+                if (!day) {
+                    button.classList.add("cerrado");
+                    button.setAttribute(
+                        "aria-label",
+                        `${isoDate}: fecha no disponible`
+                    );
+                } else {
+                    button.classList.add(
+                        day.estado || "cerrado"
+                    );
+
+                    button.setAttribute(
+                        "aria-label",
+                        `${isoDate}: ${day.mensaje ||
+                        day.estado ||
+                        "disponibilidad desconocida"
+                        }`
+                    );
+
+                    button.title = day.mensaje || (
+                        day.estado === "completo"
+                            ? "No hay plazas disponibles"
+                            : `${day.vacantes} plazas disponibles`
+                    );
+                }
+
+                if (
+                    fechaReserva.value === isoDate &&
+                    esDiaReservable(day)
+                ) {
                     button.classList.add("selected");
                 }
 
                 button.addEventListener("click", () => {
+                    mostrarDisponibilidadDia(day, isoDate);
+
+                    if (!esDiaReservable(day)) {
+                        limpiarSeleccion();
+                        return;
+                    }
+
                     fechaReserva.value = isoDate;
-                    document.querySelectorAll(".calendar-day-month.selected")
-                        .forEach(el => el.classList.remove("selected"));
+                    continuarButton.disabled = false;
+
+                    document
+                        .querySelectorAll(
+                            ".calendar-day-month.selected"
+                        )
+                        .forEach(element => {
+                            element.classList.remove("selected");
+                        });
+
                     button.classList.add("selected");
                 });
 
                 grid.appendChild(button);
             }
+
+            actualizarBotonesNavegacion();
         }
 
-        if (!grid || !apiUrl) return;
+        fechaForm.addEventListener("submit", event => {
+            if (!fechaReserva.value) {
+                event.preventDefault();
+
+                info.innerHTML = `
+                    <p class="availability-closed">
+                        Selecciona una fecha disponible antes de continuar.
+                    </p>
+                `;
+            }
+        });
 
         fetch(apiUrl)
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(
+                        "No se pudo consultar el calendario."
+                    );
+                }
+
+                return response.json();
+            })
             .then(data => {
                 calendarData = data.dias || [];
                 renderMonth();
             })
             .catch(() => {
-                grid.innerHTML = '<p class="muted">No se pudo cargar el calendario.</p>';
+                grid.innerHTML = `
+                    <p class="muted">
+                        No se pudo cargar el calendario.
+                    </p>
+                `;
+
+                continuarButton.disabled = true;
             });
 
         prevBtn.addEventListener("click", () => {
-            currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+            const nuevaFecha = new Date(
+                currentDate.getFullYear(),
+                currentDate.getMonth() - 1,
+                1
+            );
+
+            if (nuevaFecha < primerMesPermitido) {
+                return;
+            }
+
+            currentDate = nuevaFecha;
             renderMonth();
         });
 
         nextBtn.addEventListener("click", () => {
-            currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+            currentDate = new Date(
+                currentDate.getFullYear(),
+                currentDate.getMonth() + 1,
+                1
+            );
+
             renderMonth();
         });
     })();
