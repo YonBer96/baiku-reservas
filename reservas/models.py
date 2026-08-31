@@ -1,5 +1,7 @@
 from django.db import models
 
+from .utils import normalizar_telefono
+
 
 class Reserva(models.Model):
     ESTADO_CHOICES = [
@@ -28,12 +30,12 @@ class Reserva(models.Model):
 
     personas = models.PositiveIntegerField()
 
-    # NUEVO
     personas_barra = models.PositiveIntegerField(default=0)
     personas_mesa = models.PositiveIntegerField(default=0)
 
     fecha = models.DateField()
     hora = models.TimeField()
+
     servicio = models.CharField(
         max_length=20,
         choices=SERVICIO_CHOICES,
@@ -42,31 +44,32 @@ class Reserva(models.Model):
 
     zona = models.CharField(
         max_length=20,
-        choices=ZONA_CHOICES
+        choices=ZONA_CHOICES,
     )
 
     estado = models.CharField(
         max_length=20,
         choices=ESTADO_CHOICES,
-        default="pendiente_pago"
+        default="pendiente_pago",
     )
 
     importe_anticipo = models.PositiveIntegerField(default=0)
 
     stripe_session_id = models.CharField(
         max_length=255,
-        blank=True
+        blank=True,
     )
 
     expira_en = models.DateTimeField(
         null=True,
-        blank=True
+        blank=True,
     )
 
     notas = models.TextField(blank=True)
 
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
+
     recordatorio_enviado = models.BooleanField(default=False)
 
     class Meta:
@@ -74,9 +77,21 @@ class Reserva(models.Model):
 
     @property
     def zona_detalle(self):
-        if self.zona == "combinada" and (self.personas_barra or self.personas_mesa):
-            return f"Barra + mesas ({self.personas_barra} barra + {self.personas_mesa} mesa)"
+        if self.zona == "combinada" and (
+            self.personas_barra or self.personas_mesa
+        ):
+            return (
+                f"Barra + mesas "
+                f"({self.personas_barra} barra + "
+                f"{self.personas_mesa} mesa)"
+            )
+
         return self.get_zona_display()
+
+    def save(self, *args, **kwargs):
+        self.telefono = normalizar_telefono(self.telefono)
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return (
