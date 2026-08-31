@@ -726,40 +726,30 @@ def staff_hoy(request):
 
     return render(request, "reservas/staff_hoy.html", context)
 
-
 @login_required
 def staff_buscar_reserva(request):
     query = request.GET.get("q", "").strip()
+
     reservas = Reserva.objects.none()
 
     if query:
+        hoy = timezone.localdate()
+
         query_texto = normalizar_texto(query)
         query_telefono = normalizar_telefono(query)
 
-        # Primera búsqueda rápida usando campos que la BD puede filtrar directamente
-        filtros = (
-            Q(nombre__icontains=query)
-            | Q(email__icontains=query)
-            | Q(telefono__icontains=query_telefono)
-            | Q(estado__icontains=query)
-            | Q(zona__icontains=query)
-            | Q(servicio__icontains=query)
+        # Solo reservas de hoy en adelante
+        reservas_base = Reserva.objects.filter(
+            fecha__gte=hoy
         )
 
-        if query.isdigit():
-            filtros |= Q(id=int(query))
-
-        candidatas = (
-            Reserva.objects
-            .filter(filtros)
-            .order_by("-fecha", "-hora")
-        )
-
-        # Segunda pasada para permitir búsquedas ignorando tildes:
-        # García == Garcia == GARCIA
         ids_encontrados = []
 
-        for reserva in Reserva.objects.all():
+        for reserva in reservas_base:
+
+            # -------------------------
+            # BUSCAR POR TEXTO
+            # -------------------------
             campos_texto = [
                 reserva.nombre,
                 reserva.email,
@@ -768,25 +758,50 @@ def staff_buscar_reserva(request):
                 reserva.servicio,
             ]
 
-            if any(
+            coincide_texto = any(
                 query_texto in normalizar_texto(campo)
                 for campo in campos_texto
-            ):
-                ids_encontrados.append(reserva.id)
+                if campo
+            )
 
-            elif (
-                query_telefono
-                and query_telefono in normalizar_telefono(reserva.telefono)
+            # -------------------------
+            # BUSCAR POR TELÉFONO
+            # -------------------------
+            coincide_telefono = False
+
+            # Solo buscamos por teléfono si el usuario
+            # realmente ha escrito algún número
+            if query_telefono:
+                coincide_telefono = (
+                    query_telefono
+                    in normalizar_telefono(reserva.telefono)
+                )
+
+            # -------------------------
+            # BUSCAR POR ID
+            # -------------------------
+            coincide_id = False
+
+            if query.isdigit():
+                coincide_id = reserva.id == int(query)
+
+            # -------------------------
+            # GUARDAR COINCIDENCIA
+            # -------------------------
+            if (
+                coincide_texto
+                or coincide_telefono
+                or coincide_id
             ):
                 ids_encontrados.append(reserva.id)
 
         reservas = (
             Reserva.objects
             .filter(
-                Q(id__in=ids_encontrados)
-                | Q(id__in=candidatas.values_list("id", flat=True))
+                id__in=ids_encontrados,
+                fecha__gte=hoy,
             )
-            .order_by("-fecha", "-hora")
+            .order_by("fecha", "hora")
         )
 
     return render(
