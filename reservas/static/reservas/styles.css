@@ -775,7 +775,6 @@ textarea {
     margin: 0;
     color: #666;
 }
-
 /* ==================================================
    BUSCADOR DE RESERVAS STAFF - AJUSTES DE DISEÑO
    ================================================== */
@@ -810,7 +809,10 @@ textarea {
     }
 
 
-/* Formulario */
+/* ==================================================
+   FORMULARIO DE BÚSQUEDA
+   ================================================== */
+
 .staff-search-form {
     display: flex;
     align-items: center;
@@ -845,8 +847,8 @@ textarea {
    ================================================== */
 
 /*
-   La card normal de la web parece tener un max-width pequeño.
-   La tarjeta que contiene la tabla necesita ser más ancha.
+   La tarjeta de resultados necesita más ancho
+   que las tarjetas normales de formularios.
 */
 .card:has(.staff-search-table-wrapper) {
     width: min(1100px, calc(100vw - 40px));
@@ -855,7 +857,7 @@ textarea {
 }
 
 
-/* Contador */
+/* Contador de resultados */
 .staff-search-count {
     margin: 5px 0 20px;
 }
@@ -893,11 +895,13 @@ textarea {
     }
 
 
-    /* Filas */
+    /* Última fila */
     .staff-search-results tbody tr:last-child td {
         border-bottom: none;
     }
 
+
+    /* Efecto al pasar el ratón */
     .staff-search-results tbody tr:hover {
         background-color: rgba(0, 0, 0, 0.025);
     }
@@ -921,7 +925,7 @@ textarea {
     }
 
 
-/* Fecha, hora, pax y estado */
+/* Fecha, hora y pax */
 .staff-search-results td:nth-child(5),
 .staff-search-results td:nth-child(6),
 .staff-search-results td:nth-child(7) {
@@ -929,26 +933,98 @@ textarea {
 }
 
 
-/* ==========================================
-   BUSCADOR STAFF - MODO MÓVIL EN TARJETAS
-   ========================================== */
+/* ==================================================
+   MÓVIL / TABLET
+   La tabla se transforma en tarjetas
+   ================================================== */
 
 @media (max-width: 768px) {
 
+    /* Buscador */
+    .staff-search-card {
+        width: calc(100vw - 24px);
+        max-width: none;
+        box-sizing: border-box;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+
+    /* Cabecera del buscador */
+    .staff-search-header {
+        flex-direction: column;
+        gap: 15px;
+    }
+
+
+        /* Botón volver */
+        .staff-search-header .option-button {
+            width: 100%;
+            box-sizing: border-box;
+            text-align: center;
+        }
+
+
+    /* Formulario */
+    .staff-search-form {
+        flex-direction: column;
+        align-items: stretch;
+        width: 100%;
+    }
+
+
+    /* Input */
+    .staff-search-input {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }
+
+
+    /* Botón buscar */
+    .staff-search-form .button {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }
+
+
+    /* Tarjeta que contiene los resultados */
+    .card:has(.staff-search-table-wrapper) {
+        width: calc(100vw - 24px);
+        max-width: none;
+        box-sizing: border-box;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+
+    /* Contenedor */
     .staff-search-table-wrapper {
+        width: 100%;
         overflow: visible;
     }
 
+
+    /* Tabla */
     .staff-search-results {
         width: 100%;
         min-width: 0;
         border-collapse: separate;
+        border-spacing: 0;
     }
 
+
+        /* Ocultamos la cabecera tradicional */
         .staff-search-results thead {
             display: none;
         }
 
+
+        /*
+       Convertimos tabla, tbody, filas y celdas
+       en elementos de bloque.
+    */
         .staff-search-results,
         .staff-search-results tbody,
         .staff-search-results tr,
@@ -957,6 +1033,8 @@ textarea {
             width: 100%;
         }
 
+
+            /* Cada reserva se convierte en una tarjeta */
             .staff-search-results tr {
                 box-sizing: border-box;
                 margin-bottom: 18px;
@@ -966,71 +1044,104 @@ textarea {
                 background: #fff;
             }
 
+
+            /* Cada dato de la reserva */
             .staff-search-results td {
                 box-sizing: border-box;
-                border: none;
-                border-bottom: 1px solid #eee;
-                padding: 9px 0;
                 display: flex;
                 justify-content: space-between;
                 align-items: flex-start;
                 gap: 20px;
+                padding: 10px 0;
+                border: none;
+                border-bottom: 1px solid #eeeeee;
                 text-align: right;
                 white-space: normal !important;
                 word-break: break-word;
+                overflow-wrap: anywhere;
             }
 
+
+                /* Último dato sin línea inferior */
                 .staff-search-results td:last-child {
                     border-bottom: none;
                 }
 
+
+                /* Etiquetas de cada campo */
                 .staff-search-results td::before {
                     font-weight: 600;
                     text-align: left;
                     flex-shrink: 0;
                 }
 
+
+                /* ID */
                 .staff-search-results td:nth-child(1)::before {
                     content: "ID";
                 }
 
+
+                /* Cliente */
                 .staff-search-results td:nth-child(2)::before {
                     content: "Cliente";
                 }
 
+
+                /* Teléfono */
                 .staff-search-results td:nth-child(3)::before {
                     content: "Teléfono";
                 }
 
+
+                /* Email */
                 .staff-search-results td:nth-child(4)::before {
                     content: "Email";
                 }
 
+
+                /* Fecha */
                 .staff-search-results td:nth-child(5)::before {
                     content: "Fecha";
                 }
 
+
+                /* Hora */
                 .staff-search-results td:nth-child(6)::before {
                     content: "Hora";
                 }
 
+
+                /* Personas */
                 .staff-search-results td:nth-child(7)::before {
                     content: "Pax";
                 }
 
+
+                /* Zona */
                 .staff-search-results td:nth-child(8)::before {
                     content: "Zona";
                 }
 
+
+                /* Estado */
                 .staff-search-results td:nth-child(9)::before {
                     content: "Estado";
                 }
 
+
+                /* Links largos, especialmente email */
                 .staff-search-results td a {
+                    max-width: 65%;
                     word-break: break-all;
+                    overflow-wrap: anywhere;
+                    text-align: right;
                 }
 
+
+    /* Contador */
     .staff-search-count {
         line-height: 1.5;
+        margin-bottom: 20px;
     }
 }
