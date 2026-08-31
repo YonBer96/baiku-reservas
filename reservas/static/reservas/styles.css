@@ -929,45 +929,108 @@ textarea {
 }
 
 
-/* ==================================================
-   TABLET / MÓVIL
-   ================================================== */
+/* ==========================================
+   BUSCADOR STAFF - MODO MÓVIL EN TARJETAS
+   ========================================== */
 
 @media (max-width: 768px) {
 
-    .staff-search-card {
-        max-width: none;
-    }
-
-    .staff-search-header {
-        flex-direction: column;
-    }
-
-        .staff-search-header .option-button {
-            width: 100%;
-            box-sizing: border-box;
-            text-align: center;
-        }
-
-    .staff-search-form {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .staff-search-input {
-        width: 100%;
-    }
-
-    .staff-search-form .button {
-        width: 100%;
-    }
-
-    .card:has(.staff-search-table-wrapper) {
-        width: 100%;
-        max-width: 100%;
+    .staff-search-table-wrapper {
+        overflow: visible;
     }
 
     .staff-search-results {
-        min-width: 850px;
+        width: 100%;
+        min-width: 0;
+        border-collapse: separate;
+    }
+
+        .staff-search-results thead {
+            display: none;
+        }
+
+        .staff-search-results,
+        .staff-search-results tbody,
+        .staff-search-results tr,
+        .staff-search-results td {
+            display: block;
+            width: 100%;
+        }
+
+            .staff-search-results tr {
+                box-sizing: border-box;
+                margin-bottom: 18px;
+                padding: 16px;
+                border: 1px solid #e4ded7;
+                border-radius: 14px;
+                background: #fff;
+            }
+
+            .staff-search-results td {
+                box-sizing: border-box;
+                border: none;
+                border-bottom: 1px solid #eee;
+                padding: 9px 0;
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 20px;
+                text-align: right;
+                white-space: normal !important;
+                word-break: break-word;
+            }
+
+                .staff-search-results td:last-child {
+                    border-bottom: none;
+                }
+
+                .staff-search-results td::before {
+                    font-weight: 600;
+                    text-align: left;
+                    flex-shrink: 0;
+                }
+
+                .staff-search-results td:nth-child(1)::before {
+                    content: "ID";
+                }
+
+                .staff-search-results td:nth-child(2)::before {
+                    content: "Cliente";
+                }
+
+                .staff-search-results td:nth-child(3)::before {
+                    content: "Teléfono";
+                }
+
+                .staff-search-results td:nth-child(4)::before {
+                    content: "Email";
+                }
+
+                .staff-search-results td:nth-child(5)::before {
+                    content: "Fecha";
+                }
+
+                .staff-search-results td:nth-child(6)::before {
+                    content: "Hora";
+                }
+
+                .staff-search-results td:nth-child(7)::before {
+                    content: "Pax";
+                }
+
+                .staff-search-results td:nth-child(8)::before {
+                    content: "Zona";
+                }
+
+                .staff-search-results td:nth-child(9)::before {
+                    content: "Estado";
+                }
+
+                .staff-search-results td a {
+                    word-break: break-all;
+                }
+
+    .staff-search-count {
+        line-height: 1.5;
     }
 }
