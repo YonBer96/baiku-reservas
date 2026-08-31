@@ -15,7 +15,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from datetime import datetime, timedelta
 from django.utils import timezone
-
+from django.db.models import Q
+from .utils import normalizar_texto, normalizar_telefono
 from .models import BloqueoDia, Reserva
 from .services.disponibilidad import (
     CAPACIDAD_BARRA,
@@ -724,6 +725,79 @@ def staff_hoy(request):
     }
 
     return render(request, "reservas/staff_hoy.html", context)
+
+
+@login_required
+def staff_buscar_reserva(request):
+    query = request.GET.get("q", "").strip()
+    reservas = Reserva.objects.none()
+
+    if query:
+        query_texto = normalizar_texto(query)
+        query_telefono = normalizar_telefono(query)
+
+        # Primera búsqueda rápida usando campos que la BD puede filtrar directamente
+        filtros = (
+            Q(nombre__icontains=query)
+            | Q(email__icontains=query)
+            | Q(telefono__icontains=query_telefono)
+            | Q(estado__icontains=query)
+            | Q(zona__icontains=query)
+            | Q(servicio__icontains=query)
+        )
+
+        if query.isdigit():
+            filtros |= Q(id=int(query))
+
+        candidatas = (
+            Reserva.objects
+            .filter(filtros)
+            .order_by("-fecha", "-hora")
+        )
+
+        # Segunda pasada para permitir búsquedas ignorando tildes:
+        # García == Garcia == GARCIA
+        ids_encontrados = []
+
+        for reserva in Reserva.objects.all():
+            campos_texto = [
+                reserva.nombre,
+                reserva.email,
+                reserva.estado,
+                reserva.zona,
+                reserva.servicio,
+            ]
+
+            if any(
+                query_texto in normalizar_texto(campo)
+                for campo in campos_texto
+            ):
+                ids_encontrados.append(reserva.id)
+
+            elif (
+                query_telefono
+                and query_telefono in normalizar_telefono(reserva.telefono)
+            ):
+                ids_encontrados.append(reserva.id)
+
+        reservas = (
+            Reserva.objects
+            .filter(
+                Q(id__in=ids_encontrados)
+                | Q(id__in=candidatas.values_list("id", flat=True))
+            )
+            .order_by("-fecha", "-hora")
+        )
+
+    return render(
+        request,
+        "reservas/staff_buscar_reserva.html",
+        {
+            "reservas": reservas,
+            "query": query,
+        },
+    )
+
 
 
 @login_required

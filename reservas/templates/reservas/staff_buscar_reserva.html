@@ -1,0 +1,237 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+
+<!-- =========================
+     CABECERA Y BUSCADOR
+     ========================= -->
+
+<div class="card staff-search-card">
+
+    <div class="staff-search-header">
+
+        <div>
+            <h2>🔎 Buscar reserva</h2>
+
+            <p class="muted">
+                Busca por nombre, teléfono, email, ID, zona o estado.
+            </p>
+        </div>
+
+        <a href="{% url 'staff_hoy' %}" class="option-button">
+            ← Volver a reservas de hoy
+        </a>
+
+    </div>
+
+
+    <form method="get" class="staff-search-form">
+
+        <input type="text"
+               name="q"
+               value="{{ query }}"
+               class="staff-search-input"
+               placeholder="Ej: García, 612345678, email..."
+               autofocus
+               autocomplete="off">
+
+        <button type="submit" class="button">
+            🔎 Buscar
+        </button>
+
+    </form>
+
+</div>
+
+
+<!-- =========================
+     RESULTADOS
+     ========================= -->
+{% if query %}
+
+    {% if reservas %}
+
+<div class="card">
+
+    <p class="staff-search-count">
+        <strong>{{ reservas|length }}</strong>
+        reserva{{ reservas|length|pluralize:"s" }}
+        encontrada{{ reservas|length|pluralize:"s" }}
+        para
+        <strong>"{{ query }}"</strong>
+    </p>
+
+
+    <div class="staff-search-table-wrapper">
+
+        <table class="staff-search-results">
+
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Cliente</th>
+                    <th>Teléfono</th>
+                    <th>Email</th>
+                    <th>Fecha</th>
+                    <th>Hora</th>
+                    <th>Pax</th>
+                    <th>Zona</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+                {% for reserva in reservas %}
+
+                <tr>
+
+                    <!-- ID -->
+                    <td>
+                        #{{ reserva.id }}
+                    </td>
+
+
+                    <!-- NOMBRE -->
+                    <td class="staff-search-name">
+                        {{ reserva.nombre }}
+                    </td>
+
+
+                    <!-- TELÉFONO -->
+                    <td class="staff-search-phone">
+
+                        <a href="tel:{{ reserva.telefono }}">
+                            ☎ {{ reserva.telefono }}
+                        </a>
+
+                    </td>
+
+
+                    <!-- EMAIL -->
+                    <td>
+                        <a href="mailto:{{ reserva.email }}">
+                            {{ reserva.email }}
+                        </a>
+                    </td>
+
+
+                    <!-- FECHA -->
+                    <td>
+                        {{ reserva.fecha|date:"d/m/Y" }}
+                    </td>
+
+
+                    <!-- HORA -->
+                    <td>
+                        <strong>
+                            {{ reserva.hora|time:"H:i" }}
+                        </strong>
+                    </td>
+
+
+                    <!-- PERSONAS -->
+                    <td>
+                        {{ reserva.personas }}
+                    </td>
+
+
+                    <!-- ZONA -->
+                    <td>
+                        {{ reserva.zona_detalle }}
+                    </td>
+
+
+                    <!-- ESTADO -->
+                    <td>
+
+                        {% if reserva.estado == "confirmada" %}
+
+                        <strong>
+                            ✓ {{ reserva.get_estado_display }}
+                        </strong>
+
+                        {% elif reserva.estado == "pendiente_pago" %}
+
+                        ⏳ {{ reserva.get_estado_display }}
+
+                        {% elif reserva.estado == "llegado" %}
+
+                        ✔ {{ reserva.get_estado_display }}
+
+                        {% elif reserva.estado == "no_show" %}
+
+                        ✖ {{ reserva.get_estado_display }}
+
+                        {% elif reserva.estado == "cancelada" %}
+
+                        ⛔ {{ reserva.get_estado_display }}
+
+                        {% else %}
+
+                        {{ reserva.get_estado_display }}
+
+                        {% endif %}
+
+                    </td>
+
+                </tr>
+
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+</div>
+
+
+    {% else %}
+
+<!-- NO HAY RESULTADOS -->
+
+<div class="card staff-search-empty">
+
+    <h3>Sin resultados</h3>
+
+    <p class="muted">
+        No se ha encontrado ninguna reserva para
+        <strong>"{{ query }}"</strong>.
+    </p>
+
+    <p class="muted">
+        Puedes probar con parte del nombre,
+        teléfono, email o número de reserva.
+    </p>
+
+</div>
+
+    {% endif %}
+
+
+{% else %}
+
+<!-- TODAVÍA NO SE HA BUSCADO -->
+
+<div class="card staff-search-empty">
+
+    <p class="muted">
+        Escribe un nombre, teléfono, email o número de reserva
+        para comenzar la búsqueda.
+    </p>
+
+    <p class="muted">
+        No necesitas escribir los datos completos.
+        Por ejemplo, puedes buscar
+        <strong>"garcia"</strong> o
+        <strong>"61234"</strong>.
+    </p>
+
+</div>
+
+{% endif %}
+
+
+{% endblock %}

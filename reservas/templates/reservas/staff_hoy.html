@@ -8,19 +8,27 @@
     </h2>
 
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:15px 0;">
-        <a class="option-button" href="?fecha={{ fecha_anterior|date:'Y-m-d' }}">← Día anterior</a>
-        <a class="button" href="{% url 'staff_hoy' %}">Hoy</a>
-        <a class="option-button" href="?fecha={{ fecha_siguiente|date:'Y-m-d' }}">Día siguiente →</a>
+        <a class="option-button" href="?fecha={{ fecha_anterior|date:'Y-m-d' }}">
+            ← Día anterior
+        </a>
+
+        <a class="button" href="{% url 'staff_hoy' %}">
+            Hoy
+        </a>
+
+        <a class="option-button" href="?fecha={{ fecha_siguiente|date:'Y-m-d' }}">
+            Día siguiente →
+        </a>
+
+        <a class="button" href="{% url 'staff_buscar_reserva' %}">
+            🔎 Buscar reserva
+        </a>
     </div>
 
     <p>
         <strong>Total reservas:</strong> {{ total_reservas }}<br>
         <strong>Total personas:</strong> {{ total_personas }}
     </p>
-
-    
-    
-    
 </div>
 
 {% regroup reservas by hora as reservas_por_hora %}
@@ -33,12 +41,19 @@
     <div class="reserva-item">
         <div class="reserva-info">
             <strong>{{ r.nombre }}</strong><br>
-            {{ r.personas }} pax · {{ r.zona_detalle }} · {{ r.telefono }}<br>
-            <span class="muted">{{ r.estado }}</span>
+
+            {{ r.personas }} pax ·
+            {{ r.zona_detalle }} ·
+            {{ r.telefono }}<br>
+
+            <span class="muted">
+                {{ r.estado }}
+            </span>
 
             {% if r.notas %}
             <div class="reserva-notas">
-                <strong>Observaciones:</strong> {{ r.notas }}
+                <strong>Observaciones:</strong>
+                {{ r.notas }}
             </div>
             {% endif %}
         </div>
@@ -46,20 +61,43 @@
         <div class="acciones">
             <form method="post" action="{% url 'cambiar_estado' r.id %}">
                 {% csrf_token %}
-                <button name="estado" value="llegado" title="Ha llegado">✔</button>
-                <button name="estado" value="no_show" title="No-show">✖</button>
-                <button name="estado" value="cancelada" title="Cancelada">⛔</button>
+
+                <button name="estado"
+                        value="llegado"
+                        title="Ha llegado">
+                    ✔
+                </button>
+
+                <button name="estado"
+                        value="no_show"
+                        title="No-show">
+                    ✖
+                </button>
+
+                <button name="estado"
+                        value="cancelada"
+                        title="Cancelada">
+                    ⛔
+                </button>
             </form>
         </div>
     </div>
     {% endfor %}
 </div>
+
 {% empty %}
+
 <div class="card">
-    <p class="muted">No hay reservas para esta fecha.</p>
+    <p class="muted">
+        No hay reservas para esta fecha.
+    </p>
 </div>
+
 {% endfor %}
+
+
 {% if fecha == hoy %}
+
 <script>
 let reservasActuales = {{ total_reservas }};
 
@@ -74,6 +112,7 @@ async function comprobarReservas() {
         }
 
         reservasActuales = data.total;
+
     } catch (error) {
         console.log("Error comprobando reservas");
     }
@@ -81,6 +120,7 @@ async function comprobarReservas() {
 
 setInterval(comprobarReservas, 20000);
 </script>
+
 {% endif %}
 
 {% endblock %}
