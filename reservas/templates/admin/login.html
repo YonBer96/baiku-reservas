@@ -1,0 +1,169 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+
+<style>
+    .password-wrapper {
+        position: relative;
+    }
+
+        .password-wrapper input {
+            width: 100%;
+            box-sizing: border-box;
+            padding-right: 45px;
+        }
+
+    .toggle-password {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 18px;
+        padding: 4px;
+        line-height: 1;
+    }
+
+        .toggle-password:hover {
+            opacity: 0.7;
+        }
+</style>
+{% endblock %}
+
+
+{% block bodyclass %}
+{{ block.super }} login
+{% endblock %}
+
+
+{% block nav-breadcrumbs %}{% endblock %}
+
+
+{% block nav-sidebar %}{% endblock %}
+
+
+{% block content %}
+
+<div id="content-main">
+
+    {% if form.errors and not form.non_field_errors %}
+    <p class="errornote">
+        {% blocktranslate count counter=form.errors.items|length %}
+        Corrige el error indicado.
+        {% plural %}
+        Corrige los errores indicados.
+        {% endblocktranslate %}
+    </p>
+    {% endif %}
+
+
+    {% if form.non_field_errors %}
+    {% for error in form.non_field_errors %}
+    <p class="errornote">
+        {{ error }}
+    </p>
+    {% endfor %}
+    {% endif %}
+
+
+    <form action="{{ app_path }}"
+          method="post"
+          id="login-form">
+
+        {% csrf_token %}
+
+        <div class="form-row">
+            {{ form.username.errors }}
+
+            {{ form.username.label_tag }}
+
+            {{ form.username }}
+        </div>
+
+
+        <div class="form-row">
+            {{ form.password.errors }}
+
+            {{ form.password.label_tag }}
+
+            <div class="password-wrapper">
+
+                {{ form.password }}
+
+                <button type="button"
+                        class="toggle-password"
+                        id="toggle-password"
+                        title="Mostrar contraseña"
+                        aria-label="Mostrar contraseña">
+                    👁
+                </button>
+
+            </div>
+
+            <input type="hidden"
+                   name="next"
+                   value="{{ next }}">
+        </div>
+
+
+        {% url 'admin_password_reset' as password_reset_url %}
+
+        {% if password_reset_url %}
+        <div class="password-reset-link">
+            <a href="{{ password_reset_url }}">
+                ¿Has olvidado tu contraseña?
+            </a>
+        </div>
+        {% endif %}
+
+
+        <div class="submit-row">
+
+            <input type="submit"
+                   value="{% translate 'Log in' %}">
+
+        </div>
+
+    </form>
+
+</div>
+
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    const passwordInput = document.getElementById("id_password");
+    const toggleButton = document.getElementById("toggle-password");
+
+    if (!passwordInput || !toggleButton) {
+        return;
+    }
+
+    toggleButton.addEventListener("click", function () {
+
+        const oculto = passwordInput.type === "password";
+
+        passwordInput.type = oculto ? "text" : "password";
+
+        toggleButton.textContent = oculto ? "🙈" : "👁";
+
+        toggleButton.setAttribute(
+            "title",
+            oculto ? "Ocultar contraseña" : "Mostrar contraseña"
+        );
+
+        toggleButton.setAttribute(
+            "aria-label",
+            oculto ? "Ocultar contraseña" : "Mostrar contraseña"
+        );
+
+    });
+
+});
+</script>
+
+{% endblock %}
