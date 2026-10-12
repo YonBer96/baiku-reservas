@@ -33,7 +33,10 @@ from .services.disponibilidad import (
     zona_base,
     datos_combinada,
 )
-
+from .configuracion_turnos import (
+    nuevo_sistema_activo,
+    TURNOS_CENA as TURNOS_CENA_NUEVOS,
+)
 
 IMPORTE_ANTICIPO = 1000  # 10€ total por reserva, en céntimos
 MINUTOS_EXPIRACION_PAGO = 15
@@ -405,6 +408,19 @@ def reserva_hora(request):
             return redirect("reserva_hora")
 
         guardar_reserva_session(request, {"hora": hora_txt})
+
+        # En las cenas nuevas solo existe una zona: barra.
+        # La asignamos sin mostrar un paso innecesario al cliente.
+        if nuevo_sistema_activo(fecha, turno_tipo):
+            guardar_reserva_session(request, {
+                "zona": "barra",
+                "zona_opcion": "barra",
+                "zona_nombre": "Barra",
+                "personas_barra": personas,
+                "personas_mesa": 0,
+            })
+            return redirect("reserva_datos")
+
         return redirect("reserva_zona")
 
     return render(
@@ -430,6 +446,19 @@ def reserva_zona(request):
     hora = _hora_desde_texto(reserva["hora"])
     personas = int(reserva["personas"])
     zonas = zonas_disponibles(fecha, hora, personas)
+
+    if nuevo_sistema_activo(fecha, reserva["turno"]):
+        if not hay_disponibilidad(fecha, hora, personas, "barra"):
+            messages.error(request, "Ese horario ya no tiene plazas disponibles.")
+            return redirect("reserva_hora")
+        guardar_reserva_session(request, {
+            "zona": "barra",
+            "zona_opcion": "barra",
+            "zona_nombre": "Barra",
+            "personas_barra": personas,
+            "personas_mesa": 0,
+        })
+        return redirect("reserva_datos")
 
     if request.method == "POST":
         zona = request.POST.get("zona")
@@ -576,11 +605,39 @@ def crear_pago_stripe(request):
 
 def enviar_email_confirmacion(reserva):
     asunto = "Reserva confirmada en Baiku"
+
     zona_texto = reserva.get_zona_display()
-    if reserva.zona == "combinada" and (reserva.personas_barra or reserva.personas_mesa):
-        zona_texto = f"Barra + mesas ({reserva.personas_barra} en barra + {reserva.personas_mesa} en mesa)"
+
+    if reserva.zona == "combinada" and (
+        reserva.personas_barra or reserva.personas_mesa
+    ):
+        zona_texto = (
+            f"Barra + mesas "
+            f"({reserva.personas_barra} en barra + "
+            f"{reserva.personas_mesa} en mesa)"
+        )
 
     enlace = "https://baiku-reservas.onrender.com/gestionar-reserva/"
+
+    # Aviso exclusivo para los nuevos turnos de cena
+    aviso_cena = ""
+
+    if (
+        reserva.servicio == "cena"
+        and reserva.hora.strftime("%H:%M") in ("20:10", "21:50")
+    ):
+        inicio = datetime.combine(reserva.fecha, reserva.hora)
+        fin = inicio + timedelta(minutes=90)
+
+        aviso_cena = (
+            "INFORMACIÓN IMPORTANTE SOBRE TU RESERVA\n"
+            "El servicio de cena tiene una duración máxima de "
+            "90 minutos.\n"
+            f"Tu turno comienza a las {inicio.strftime('%H:%M')} "
+            f"y finaliza a las {fin.strftime('%H:%M')}.\n"
+            "Te agradecemos tu puntualidad para que puedas "
+            "disfrutar de tu experiencia en Baiku.\n\n"
+        )
 
     mensaje = (
         f"Hola {reserva.nombre},\n\n"
@@ -590,6 +647,7 @@ def enviar_email_confirmacion(reserva):
         f"Hora: {reserva.hora.strftime('%H:%M')}\n"
         f"Personas: {reserva.personas}\n"
         f"Zona: {zona_texto}\n\n"
+        f"{aviso_cena}"
         "Puedes gestionar o cancelar tu reserva desde:\n"
         f"{enlace}\n\n"
         "Muchas gracias,\n"
@@ -955,65 +1013,173 @@ def editar_reserva_cliente(request, reserva_id):
     reserva = get_object_or_404(Reserva, id=reserva_id)
 
     if reserva.estado == "cancelada":
-        messages.error(request, "No se puede modificar una reserva cancelada.")
+        messages.error(
+            request,
+            "No se puede modificar una reserva cancelada."
+        )
         return redirect("gestionar_reserva")
+
+    servicio_actual = (
+        reserva.servicio
+        or periodo_de_hora(reserva.hora)
+        or "comida"
+    )
 
     if request.method == "POST":
         accion = request.POST.get("accion")
+
+        if accion not in {"volver_edicion", "buscar_zonas", "confirmar"}:
+            messages.error(request, "Acción no válida.")
+            return redirect(
+                "editar_reserva_cliente",
+                reserva_id=reserva.id,
+            )
 
         try:
             personas = int(request.POST.get("personas", 0))
             fecha = _fecha_desde_texto(request.POST.get("fecha"))
         except (TypeError, ValueError):
             messages.error(request, "Datos de reserva no válidos.")
-            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+            return redirect(
+                "editar_reserva_cliente",
+                reserva_id=reserva.id,
+            )
 
-        servicio_form = request.POST.get("servicio") or reserva.servicio or periodo_de_hora(reserva.hora) or "comida"
+        servicio_form = (
+            request.POST.get("servicio")
+            or servicio_actual
+        )
+
         hora_txt = request.POST.get("hora") or ""
 
-        # Si el cliente solo cambia personas y mantiene el mismo servicio,
-        # conservamos la hora original de la reserva.
-        if not hora_txt and servicio_form == (reserva.servicio or periodo_de_hora(reserva.hora)):
+        # Si no se envía hora y se mantiene el servicio,
+        # utilizamos la hora original.
+        if not hora_txt and servicio_form == servicio_actual:
             hora = reserva.hora
         else:
             try:
                 hora = _hora_desde_texto(hora_txt)
             except (TypeError, ValueError):
-                messages.error(request, "Selecciona una hora válida.")
-                return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+                messages.error(
+                    request,
+                    "Selecciona una hora válida."
+                )
+                return redirect(
+                    "editar_reserva_cliente",
+                    reserva_id=reserva.id,
+                )
+
+        # --------------------------------------------------
+        # 1. VALIDACIONES GENERALES
+        # --------------------------------------------------
 
         if personas < 1 or personas > MAX_PERSONAS_RESERVA:
-            messages.error(request, f"Elige entre 1 y {MAX_PERSONAS_RESERVA} personas.")
-            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+            messages.error(
+                request,
+                f"Elige entre 1 y {MAX_PERSONAS_RESERVA} personas."
+            )
+            return redirect(
+                "editar_reserva_cliente",
+                reserva_id=reserva.id,
+            )
 
         motivo_no_reservable = _motivo_fecha_no_reservable(fecha)
-        if fecha < date.today() or motivo_no_reservable:
-            messages.error(request, motivo_no_reservable or "No puedes reservar una fecha pasada.")
-            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+
+        if fecha < timezone.localdate() or motivo_no_reservable:
+            messages.error(
+                request,
+                motivo_no_reservable
+                or "No puedes reservar una fecha pasada."
+            )
+            return redirect(
+                "editar_reserva_cliente",
+                reserva_id=reserva.id,
+            )
+
+        if servicio_form not in {"comida", "cena"}:
+            messages.error(
+                request,
+                "El servicio seleccionado no es válido."
+            )
+            return redirect(
+                "editar_reserva_cliente",
+                reserva_id=reserva.id,
+            )
 
         servicio_hora = periodo_de_hora(hora)
+
         if servicio_hora != servicio_form:
-            messages.error(request, "La hora seleccionada no pertenece al servicio elegido.")
-            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+            messages.error(
+                request,
+                "La hora seleccionada no pertenece al servicio elegido."
+            )
+            return redirect(
+                "editar_reserva_cliente",
+                reserva_id=reserva.id,
+            )
 
-        horas_disponibles = horas_llegada_para_turno(
-            fecha,
-            servicio_form,
-            excluir_reserva_id=reserva.id,
-        )
+        # --------------------------------------------------
+        # 2. COMPROBAR HORARIOS
+        # --------------------------------------------------
 
-        # Solo se puede conservar la hora original cuando también se mantiene
-        # la fecha y el servicio originales. En otra fecha debe estar libre.
-        servicio_actual = reserva.servicio or periodo_de_hora(reserva.hora)
+        horas_disponibles = [
+            hora_opcion
+            for hora_opcion in horas_llegada_para_turno(
+                fecha, servicio_form, excluir_reserva_id=reserva.id,
+            )
+            if zonas_disponibles(
+                fecha, hora_opcion, personas,
+                excluir_reserva_id=reserva.id,
+            )
+        ]
+
         mantiene_hueco_original = (
             fecha == reserva.fecha
             and servicio_form == servicio_actual
             and hora == reserva.hora
         )
 
-        if hora not in horas_disponibles and not mantiene_hueco_original:
-            messages.error(request, "Esa hora ya no está disponible.")
-            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+        cambia_fecha_hora_o_personas = (
+            fecha != reserva.fecha
+            or hora != reserva.hora
+            or personas != reserva.personas
+            or servicio_form != servicio_actual
+        )
+
+        # Las cenas nuevas solo admiten los dos horarios
+        # establecidos. Las reservas antiguas pueden
+        # conservar su hora si no se modifican.
+        if nuevo_sistema_activo(fecha, servicio_form):
+            if (
+                cambia_fecha_hora_o_personas
+                and hora not in TURNOS_CENA_NUEVOS
+            ):
+                messages.error(
+                    request,
+                    "Para modificar esta cena debes elegir "
+                    "20:10 o 21:50."
+                )
+                return redirect(
+                    "editar_reserva_cliente",
+                    reserva_id=reserva.id,
+                )
+
+        if (
+            hora not in horas_disponibles
+            and not mantiene_hueco_original
+        ):
+            messages.error(
+                request,
+                "Esa hora ya no está disponible."
+            )
+            return redirect(
+                "editar_reserva_cliente",
+                reserva_id=reserva.id,
+            )
+
+        # --------------------------------------------------
+        # 3. VOLVER AL FORMULARIO
+        # --------------------------------------------------
 
         if accion == "volver_edicion":
             return render(
@@ -1022,7 +1188,7 @@ def editar_reserva_cliente(request, reserva_id):
                 {
                     "reserva": reserva,
                     "max_personas": MAX_PERSONAS_RESERVA,
-                    "hoy": date.today(),
+                    "hoy": timezone.localdate(),
                     "personas_form": personas,
                     "fecha_form": fecha,
                     "servicio_form": servicio_form,
@@ -1031,6 +1197,10 @@ def editar_reserva_cliente(request, reserva_id):
                 },
             )
 
+        # --------------------------------------------------
+        # 4. CONSULTAR ZONAS DISPONIBLES
+        # --------------------------------------------------
+
         zonas = zonas_disponibles(
             fecha,
             hora,
@@ -1038,7 +1208,15 @@ def editar_reserva_cliente(request, reserva_id):
             excluir_reserva_id=reserva.id,
         )
 
-        if accion == "buscar_zonas":
+        # Para las nuevas cenas solo existe barra: confirmar directamente
+        # sin mostrar la pantalla intermedia de selección de zona.
+        cena_nueva = (
+            nuevo_sistema_activo(fecha, servicio_form)
+            and hora in TURNOS_CENA_NUEVOS
+        )
+        if accion == "buscar_zonas" and cena_nueva:
+            accion = "confirmar"
+        elif accion == "buscar_zonas":
             return render(
                 request,
                 "reservas/editar_reserva_zona_cliente.html",
@@ -1052,32 +1230,100 @@ def editar_reserva_cliente(request, reserva_id):
                 },
             )
 
-        zona = request.POST.get("zona")
+        # --------------------------------------------------
+        # 5. VALIDAR LA ZONA ELEGIDA
+        # --------------------------------------------------
+
+        zona = "barra" if cena_nueva else request.POST.get("zona")
 
         if not zona:
-            messages.error(request, "Elige una zona disponible.")
-            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+            messages.error(
+                request,
+                "Elige una zona disponible."
+            )
+            return redirect(
+                "editar_reserva_cliente",
+                reserva_id=reserva.id,
+            )
 
-        if not hay_disponibilidad(
-            fecha,
-            hora,
-            personas,
-            zona,
-            excluir_reserva_id=reserva.id,
+        zonas_validas = {
+            opcion["id"]
+            for opcion in zonas
+        }
+
+        # Permitir conservar exactamente una reserva antigua
+        # sin obligarla a cambiar de horario o de zona.
+        conserva_reserva_original = (
+            fecha == reserva.fecha
+            and hora == reserva.hora
+            and personas == reserva.personas
+            and servicio_form == servicio_actual
+            and zona == reserva.zona
+        )
+
+        if (
+            zona not in zonas_validas
+            and not conserva_reserva_original
         ):
-            messages.error(request, "Ese nuevo hueco no está disponible.")
-            return redirect("editar_reserva_cliente", reserva_id=reserva.id)
+            messages.error(
+                request,
+                "La zona seleccionada no está disponible "
+                "para esta reserva."
+            )
+            return redirect(
+                "editar_reserva_cliente",
+                reserva_id=reserva.id,
+            )
 
-        datos_zona = _normalizar_zona_para_guardar(zona, personas)
+        # --------------------------------------------------
+        # 6. VALIDACIÓN FINAL
+        # --------------------------------------------------
+
+        if not conserva_reserva_original:
+            if not hay_disponibilidad(
+                fecha,
+                hora,
+                personas,
+                zona,
+                excluir_reserva_id=reserva.id,
+            ):
+                messages.error(
+                    request,
+                    "Ese nuevo hueco no está disponible."
+                )
+                return redirect(
+                    "editar_reserva_cliente",
+                    reserva_id=reserva.id,
+                )
+
+        # Si no cambia nada, no reescribimos la reserva.
+        # Así conservamos también los datos originales
+        # de las reservas antiguas y combinadas.
+        if conserva_reserva_original:
+            messages.success(
+                request,
+                "La reserva se ha mantenido sin cambios."
+            )
+            return redirect("gestionar_reserva")
+
+        # --------------------------------------------------
+        # 7. GUARDAR MODIFICACIÓN
+        # --------------------------------------------------
+
+        datos_zona = _normalizar_zona_para_guardar(
+            zona,
+            personas,
+        )
 
         reserva.personas = personas
         reserva.fecha = fecha
         reserva.hora = hora
-        reserva.servicio = periodo_de_hora(hora) or servicio_form
+        reserva.servicio = servicio_form
         reserva.zona = datos_zona["zona"]
         reserva.personas_barra = datos_zona["personas_barra"]
         reserva.personas_mesa = datos_zona["personas_mesa"]
         reserva.recordatorio_enviado = False
+
         reserva.save(
             update_fields=[
                 "personas",
@@ -1092,17 +1338,30 @@ def editar_reserva_cliente(request, reserva_id):
             ]
         )
 
-        _enviar_email_seguro(enviar_email_modificacion, reserva)
-        messages.success(request, "Reserva modificada correctamente.")
+        _enviar_email_seguro(
+            enviar_email_modificacion,
+            reserva,
+        )
+
+        messages.success(
+            request,
+            "Reserva modificada correctamente."
+        )
+
         return redirect("gestionar_reserva")
 
-    servicio_inicial = reserva.servicio or periodo_de_hora(reserva.hora) or "comida"
+    # --------------------------------------------------
+    # 8. MOSTRAR FORMULARIO INICIAL
+    # --------------------------------------------------
+
     horas_disponibles = horas_llegada_para_turno(
         reserva.fecha,
-        servicio_inicial,
+        servicio_actual,
         excluir_reserva_id=reserva.id,
     )
 
+    # Mostrar la hora original aunque ya no se ofrezca
+    # para nuevas reservas.
     if reserva.hora not in horas_disponibles:
         horas_disponibles.insert(0, reserva.hora)
 
@@ -1112,10 +1371,10 @@ def editar_reserva_cliente(request, reserva_id):
         {
             "reserva": reserva,
             "max_personas": MAX_PERSONAS_RESERVA,
-            "hoy": date.today(),
+            "hoy": timezone.localdate(),
             "personas_form": reserva.personas,
             "fecha_form": reserva.fecha,
-            "servicio_form": servicio_inicial,
+            "servicio_form": servicio_actual,
             "hora_form": reserva.hora,
             "horas_disponibles": horas_disponibles,
             "zonas": [],

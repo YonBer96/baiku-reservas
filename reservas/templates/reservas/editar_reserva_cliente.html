@@ -71,6 +71,9 @@
     const horaSelect = document.getElementById("editar-hora");
     const info = document.getElementById("calendar-availability-info");
     const hoursStatus = document.getElementById("hours-status");
+    const personasInput = document.getElementById("editar-personas");
+    const originalDate = inputFecha.value;
+    const originalService = servicioSelect.value;
 
     if (!calendar || !inputFecha || !servicioSelect || !horaSelect) return;
 
@@ -152,7 +155,19 @@
         const detallesHtml = day.detalles.map(detalle => {
             const servicio = String(detalle.servicio || "").toUpperCase();
 
-            if (detalle.total_libre <= 0) {
+            if (detalle.tipo === "turnos_barra" || Array.isArray(detalle.turnos)) {
+                const turnosHtml = (detalle.turnos || []).map(turno => `
+                    <span>${turno.hora} – ${turno.fin}: ${turno.plazas_libres ?? 0} plazas libres en barra</span>
+                `).join("");
+                return `
+                    <div class="availability-service">
+                        <strong>CENA</strong>
+                        ${turnosHtml}
+                    </div>
+                `;
+            }
+
+            if (detalle.total_libre <= 0 || (detalle.barra_libre == null && detalle.mesa_libre == null)) {
                 return `
                     <div class="availability-service">
                         <strong>${servicio}</strong>
@@ -209,7 +224,27 @@
                 return;
             }
 
-            data.horas.forEach(hora => {
+            // Para cenas nuevas, filtrar por el número de comensales.
+            // La reserva original se conserva como opción al editarla.
+            const dayData = getDayData(fecha);
+            const dinnerDetail = (dayData?.detalles || []).find(d =>
+                d.tipo === "turnos_barra" || Array.isArray(d.turnos)
+            );
+            const personas = Number(personasInput.value);
+            const horasFiltradas = (data.horas || []).filter(hora => {
+                if (!dinnerDetail || servicio !== "cena") return true;
+                if (fecha === originalDate && servicio === originalService && hora === initialHour) return true;
+                const turno = (dinnerDetail.turnos || []).find(t => t.hora === hora);
+                return Boolean(turno && Number(turno.plazas_libres) >= personas);
+            });
+
+            if (!horasFiltradas.length) {
+                horaSelect.innerHTML = '<option value="">No hay horas con plazas suficientes</option>';
+                hoursStatus.textContent = "No hay plazas para ese número de personas en este servicio.";
+                return;
+            }
+
+            horasFiltradas.forEach(hora => {
                 const option = document.createElement("option");
                 option.value = hora;
                 option.textContent = hora;
@@ -319,6 +354,7 @@
     }
 
     servicioSelect.addEventListener("change", () => actualizarHoras());
+    personasInput.addEventListener("change", () => actualizarHoras(horaSelect.value));
 
     fetch(calendarApiUrl)
         .then(response => {

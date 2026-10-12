@@ -1145,3 +1145,115 @@ textarea {
         margin-bottom: 20px;
     }
 }
+
+
+/* =========================================
+   BAIKU - TARJETAS DE HORARIOS
+========================================= */
+
+.reserva-horarios .horarios-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin: 28px 0;
+}
+
+.horario-card {
+    display: block;
+    position: relative;
+    cursor: pointer;
+    min-width: 0;
+}
+
+    .horario-card input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+    }
+
+.horario-card-contenido {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 9px;
+    min-height: 185px;
+    padding: 24px 12px;
+    background: #fff;
+    border: 1.5px solid #ded8ce;
+    border-radius: 16px;
+    transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.horario-card:hover .horario-card-contenido {
+    border-color: #967951;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+}
+
+.horario-card input:checked + .horario-card-contenido {
+    border-color: #80613e;
+    background: #f8f3ea;
+    box-shadow: 0 0 0 1px #80613e;
+}
+
+.horario-card input:focus-visible + .horario-card-contenido {
+    outline: 3px solid #80613e;
+    outline-offset: 3px;
+}
+
+.horario-etiqueta {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #8b765c;
+}
+
+.horario-principal {
+    font-size: clamp(28px, 5vw, 40px);
+    line-height: 1.15;
+    font-weight: 700;
+    color: #28231d;
+}
+
+.horario-final {
+    font-size: 14px;
+    color: #655c51;
+}
+
+.horario-duracion {
+    margin-top: 4px;
+    padding: 6px 12px;
+    border-radius: 30px;
+    background: #eee6da;
+    color: #6e5538;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.horario-continuar {
+    width: 100%;
+    margin-top: 8px;
+}
+
+@media (max-width: 480px) {
+    .reserva-horarios .horarios-grid {
+        gap: 10px;
+    }
+
+    .horario-card-contenido {
+        min-height: 170px;
+        padding: 18px 8px;
+    }
+
+    .horario-etiqueta {
+        font-size: 10px;
+        letter-spacing: 0.7px;
+    }
+
+    .horario-final {
+        font-size: 12px;
+    }
+}

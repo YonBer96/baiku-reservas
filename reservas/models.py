@@ -72,6 +72,24 @@ class Reserva(models.Model):
 
     recordatorio_enviado = models.BooleanField(default=False)
 
+    # =========================
+    # VALORACIÓN DEL CLIENTE
+    # =========================
+
+    valoracion = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+    )
+
+    email_valoracion_enviado = models.BooleanField(
+        default=False,
+    )
+
+    valoracion_enviada_en = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
     class Meta:
         ordering = ["fecha", "servicio", "hora", "zona"]
 
@@ -91,6 +109,13 @@ class Reserva(models.Model):
     def save(self, *args, **kwargs):
         self.telefono = normalizar_telefono(self.telefono)
 
+        # Evitamos guardar valoraciones fuera de 1-5
+        if self.valoracion is not None:
+            if self.valoracion < 1 or self.valoracion > 5:
+                raise ValueError(
+                    "La valoración debe estar entre 1 y 5."
+                )
+
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -103,8 +128,14 @@ class Reserva(models.Model):
 
 class BloqueoDia(models.Model):
     fecha = models.DateField(unique=True)
-    motivo = models.CharField(max_length=255, blank=True)
-    creado = models.DateTimeField(auto_now_add=True)
+    motivo = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+
+    creado = models.DateTimeField(
+        auto_now_add=True,
+    )
 
     class Meta:
         ordering = ["fecha"]

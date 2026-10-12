@@ -20,11 +20,12 @@
           action="{% url 'editar_reserva_cliente' reserva.id %}"
           class="form-vertical">
         {% csrf_token %}
-
+        <input type="hidden" name="accion" value="confirmar">
         <input type="hidden" name="personas" value="{{ personas_form }}">
         <input type="hidden" name="fecha" value="{{ fecha_form|date:'Y-m-d' }}">
         <input type="hidden" name="hora" value="{{ hora_form|time:'H:i' }}">
         <input type="hidden" name="servicio" value="{{ servicio_form }}">
+
 
         {% for z in zonas %}
         <button class="option-button" type="submit" name="zona" value="{{ z.id }}">

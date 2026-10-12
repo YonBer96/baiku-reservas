@@ -4,6 +4,12 @@ from django.db.models import Sum, Q
 from django.utils import timezone
 
 from reservas.models import BloqueoDia, Reserva
+from reservas.configuracion_turnos import (
+    CAPACIDAD_BARRA_CENA,
+    DURACION_CENA,
+    TURNOS_CENA as TURNOS_CENA_NUEVOS,
+    nuevo_sistema_activo,
+)
 
 
 CAPACIDAD_BARRA = 8
@@ -325,9 +331,11 @@ def plazas_disponibles_para_reserva(fecha, hora, personas, zona, excluir_reserva
 
     return plazas_disponibles(fecha, hora, zona, excluir_reserva_id)
 
-
 def hay_disponibilidad(fecha, hora, personas, zona, excluir_reserva_id=None):
     if dia_bloqueado(fecha):
+        return False
+
+    if fecha < timezone.localdate():
         return False
 
     if fecha == timezone.localdate():
@@ -335,6 +343,44 @@ def hay_disponibilidad(fecha, hora, personas, zona, excluir_reserva_id=None):
         if hora <= ahora:
             return False
 
+    # ==============================================
+    # NUEVO SISTEMA DE CENAS
+    # Desde el 15 de octubre de 2026
+    # ==============================================
+    if nuevo_sistema_activo(fecha, "cena") and hora in TURNOS_CENA_NUEVOS:
+
+        # Comprobar que el restaurante abre para cenar.
+        if time(20, 0) not in obtener_turnos_para_fecha(fecha):
+            return False
+
+        # Solo se permiten reservas online en barra.
+        if zona_base(zona) != "barra":
+            return False
+
+        # Máximo 10 personas por reserva.
+        if not 1 <= personas <= CAPACIDAD_BARRA_CENA:
+            return False
+
+        # Comprobar disponibilidad durante los 90 minutos.
+        return (
+            plazas_libres_nueva_cena(
+                fecha,
+                hora,
+                excluir_reserva_id,
+            ) >= personas
+        )
+
+    # Impedir entradas antiguas de cena desde la activación.
+    if (
+        nuevo_sistema_activo(fecha, "cena")
+        and periodo_de_hora(hora) == "cena"
+    ):
+        return False
+
+    # ==============================================
+    # SISTEMA ANTERIOR
+    # Comidas y cenas anteriores a la activación
+    # ==============================================
     if hora_ocupada(fecha, hora, excluir_reserva_id):
         return False
 
@@ -350,12 +396,10 @@ def hay_disponibilidad(fecha, hora, personas, zona, excluir_reserva_id=None):
     if not periodo:
         return False
 
-    # Seguridad global: nunca permitir más de 12 personas por servicio.
-    # Cuenta también reservas antiguas, por ejemplo las que quedaron a las 15:30.
     ocupacion_turno = total_personas_reservadas(
         fecha,
         hora,
-        excluir_reserva_id
+        excluir_reserva_id,
     )
 
     if ocupacion_turno + personas > CAPACIDAD_TOTAL:
@@ -459,6 +503,24 @@ def combinaciones_posibles(fecha, hora, personas, excluir_reserva_id=None):
 
 
 def zonas_disponibles(fecha, hora, personas, excluir_reserva_id=None):
+        # NUEVO SISTEMA DE CENAS
+    if (
+        nuevo_sistema_activo(fecha, "cena")
+        and periodo_de_hora(hora) == "cena"
+    ):
+        if not hay_disponibilidad(
+            fecha, hora, personas, "barra", excluir_reserva_id
+        ):
+            return []
+
+        return [{
+            "id": "barra",
+            "nombre": "Barra",
+            "descripcion": "",
+            "plazas_libres": plazas_libres_nueva_cena(
+                fecha, hora, excluir_reserva_id
+            ),
+        }]
     opciones = []
 
     if personas <= 2:
@@ -580,13 +642,27 @@ def mapa_ocupacion(fecha):
 
 
 def horas_llegada_para_turno(fecha, turno, excluir_reserva_id=None):
-    """Genera horas de llegada cada 15 minutos y elimina las ya ocupadas."""
+    """
+    Devuelve los horarios de llegada disponibles.
+
+    - Comidas: sistema anterior.
+    - Cenas anteriores al 15/10/2026: sistema anterior.
+    - Cenas nuevas: 20:10 y 21:50.
+    """
+
+    # NUEVO SISTEMA DE CENAS
+    if turno == "cena" and nuevo_sistema_activo(fecha, "cena"):
+        return horas_llegada_nueva_cena(fecha)
+
+    # SISTEMA ANTERIOR
     if turno == "comida":
-        inicio = time(13, 15)
-        fin = time(15, 15)
+        inicio = time(13, 30)
+        fin = time(15, 0)
+
     elif turno == "cena":
         inicio = time(20, 15)
         fin = time(22, 15)
+
     else:
         return []
 
@@ -596,9 +672,14 @@ def horas_llegada_para_turno(fecha, turno, excluir_reserva_id=None):
 
     while actual <= limite:
         hora_actual = actual.time()
+
         if not hora_ocupada(fecha, hora_actual, excluir_reserva_id):
-            if fecha != timezone.localdate() or hora_actual > timezone.localtime().time():
+            if (
+                fecha != timezone.localdate()
+                or hora_actual > timezone.localtime().time()
+            ):
                 horas.append(hora_actual)
+
         actual += timedelta(minutes=15)
 
     return horas
@@ -636,30 +717,38 @@ def resumen_calendario_dia(fecha, excluir_reserva_id=None):
     for turno_base in obtener_turnos_reservables_para_fecha(fecha):
         servicio = "Cena" if turno_base == time(20, 0) else "Comida"
 
+        if servicio == "Cena" and nuevo_sistema_activo(fecha, "cena"):
+            # Cada turno tiene su propia capacidad. Las reservas antiguas
+            # que se solapan se descuentan mediante el cálculo por intervalos.
+            turnos = []
+            for hora in TURNOS_CENA_NUEVOS:
+                libres = plazas_libres_nueva_cena(
+                    fecha, hora, excluir_reserva_id=excluir_reserva_id
+                )
+                fin = (datetime.combine(fecha, hora) + DURACION_CENA).time()
+                turnos.append({
+                    "hora": hora.strftime("%H:%M"),
+                    "fin": fin.strftime("%H:%M"),
+                    "plazas_libres": libres,
+                })
+                max_libres = max(max_libres, libres)
+
+            detalles.append({
+                "servicio": "Cena",
+                "tipo": "turnos_barra",
+                "turnos": turnos,
+                "total_libre": max((t["plazas_libres"] for t in turnos), default=0),
+            })
+            continue
+
         barra_ocupada = personas_reservadas(
-            fecha,
-            turno_base,
-            "barra",
-            excluir_reserva_id,
+            fecha, turno_base, "barra", excluir_reserva_id
         )
-
         mesa_ocupada = personas_reservadas(
-            fecha,
-            turno_base,
-            "mesa",
-            excluir_reserva_id,
+            fecha, turno_base, "mesa", excluir_reserva_id
         )
-
-        barra_libre = max(
-            CAPACIDAD_BARRA - barra_ocupada,
-            0,
-        )
-
-        mesa_libre = max(
-            CAPACIDAD_MESA - mesa_ocupada,
-            0,
-        )
-
+        barra_libre = max(CAPACIDAD_BARRA - barra_ocupada, 0)
+        mesa_libre = max(CAPACIDAD_MESA - mesa_ocupada, 0)
         total_libre = barra_libre + mesa_libre
         max_libres = max(max_libres, total_libre)
 
@@ -690,3 +779,131 @@ def resumen_calendario_dia(fecha, excluir_reserva_id=None):
         "detalles": detalles,
         "mensaje": mensaje,
     }
+
+def intervalos_solapados(inicio_a, fin_a, inicio_b, fin_b):
+    """
+    Comprueba si dos intervalos horarios se solapan.
+
+    Ejemplo:
+    20:30–22:00 y 21:45–23:15 -> True
+    20:15–21:45 y 21:45–23:15 -> False
+    """
+    return inicio_a < fin_b and inicio_b < fin_a
+
+
+def ocupacion_barra_intervalo(
+    fecha,
+    hora_inicio,
+    duracion=DURACION_CENA,
+    excluir_reserva_id=None,
+):
+    """
+    Calcula el máximo número de plazas de barra ocupadas
+    simultáneamente durante un intervalo.
+
+    Incluye reservas antiguas y nuevas.
+    No modifica ninguna reserva existente.
+
+    IMPORTANTE:
+    Se supone provisionalmente una duración de 90 minutos
+    para las reservas antiguas de cena.
+    """
+    inicio = datetime.combine(fecha, hora_inicio)
+    fin = inicio + duracion
+
+    reservas = reservas_que_ocupan(excluir_reserva_id).filter(
+        fecha=fecha,
+        servicio="cena",
+    )
+
+    eventos = []
+
+    for reserva in reservas:
+        inicio_reserva = datetime.combine(fecha, reserva.hora)
+        fin_reserva = inicio_reserva + DURACION_CENA
+
+        if not intervalos_solapados(
+            inicio,
+            fin,
+            inicio_reserva,
+            fin_reserva,
+        ):
+            continue
+
+        personas_barra = _ocupacion_reserva(reserva)["barra"]
+
+        eventos.append((max(inicio, inicio_reserva), personas_barra))
+        eventos.append((min(fin, fin_reserva), -personas_barra))
+
+    # En el mismo instante, procesar salidas antes que entradas.
+    eventos.sort(key=lambda evento: (evento[0], evento[1]))
+
+    ocupacion_actual = 0
+    ocupacion_maxima = 0
+
+    for _, variacion in eventos:
+        ocupacion_actual += variacion
+        ocupacion_maxima = max(ocupacion_maxima, ocupacion_actual)
+
+    return ocupacion_maxima
+
+def plazas_libres_nueva_cena(
+    fecha,
+    hora,
+    excluir_reserva_id=None,
+):
+    """
+    Calcula las plazas libres de barra durante
+    uno de los nuevos turnos de cena.
+
+    Tiene en cuenta las reservas antiguas y nuevas.
+    """
+
+    if not nuevo_sistema_activo(fecha, "cena"):
+        return 0
+
+    if hora not in TURNOS_CENA_NUEVOS:
+        return 0
+
+    if dia_bloqueado(fecha):
+        return 0
+
+    if hora not in horas_llegada_nueva_cena(fecha):
+        return 0
+
+    ocupadas = ocupacion_barra_intervalo(
+        fecha=fecha,
+        hora_inicio=hora,
+        duracion=DURACION_CENA,
+        excluir_reserva_id=excluir_reserva_id,
+    )
+
+    return max(CAPACIDAD_BARRA_CENA - ocupadas, 0)
+
+
+def horas_llegada_nueva_cena(fecha):
+    """
+    Devuelve los horarios permitidos de cena.
+    No comprueba las plazas disponibles.
+    """
+
+    if not nuevo_sistema_activo(fecha, "cena"):
+        return []
+
+    if dia_bloqueado(fecha):
+        return []
+
+    if time(20, 0) not in obtener_turnos_para_fecha(fecha):
+        return []
+
+    ahora = timezone.localtime()
+
+    horas = []
+
+    for hora in TURNOS_CENA_NUEVOS:
+        if fecha == ahora.date() and hora <= ahora.time():
+            continue
+
+        horas.append(hora)
+
+    return horas

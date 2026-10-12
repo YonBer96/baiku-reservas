@@ -268,6 +268,24 @@
                         detalle.servicio || ""
                     ).toUpperCase();
 
+                    // Las cenas nuevas se devuelven por turnos, no por zona.
+                    if (detalle.tipo === "turnos_barra") {
+                        const turnos = Array.isArray(detalle.turnos) ? detalle.turnos : [];
+                        const turnosHtml = turnos.map(turno => `
+                            <span>
+                                ${turno.hora}–${turno.fin}:
+                                ${textoPlazas(turno.plazas_libres ?? 0)} en barra
+                            </span>
+                        `).join("");
+
+                        return `
+                            <div class="availability-service">
+                                <strong>${servicio}</strong>
+                                ${turnosHtml || '<span class="availability-full">No hay turnos disponibles.</span>'}
+                            </div>
+                        `;
+                    }
+
                     if (detalle.total_libre <= 0) {
                         return `
                             <div class="availability-service">
