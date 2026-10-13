@@ -32,6 +32,7 @@ from .services.disponibilidad import (
     resumen_calendario_dia,
     zona_base,
     datos_combinada,
+    cena_con_sistema_nuevo,
 )
 from .configuracion_turnos import (
     nuevo_sistema_activo,
@@ -411,7 +412,7 @@ def reserva_hora(request):
 
         # En las cenas nuevas solo existe una zona: barra.
         # La asignamos sin mostrar un paso innecesario al cliente.
-        if nuevo_sistema_activo(fecha, turno_tipo):
+        if cena_con_sistema_nuevo(fecha):
             guardar_reserva_session(request, {
                 "zona": "barra",
                 "zona_opcion": "barra",
@@ -447,7 +448,7 @@ def reserva_zona(request):
     personas = int(reserva["personas"])
     zonas = zonas_disponibles(fecha, hora, personas)
 
-    if nuevo_sistema_activo(fecha, reserva["turno"]):
+    if cena_con_sistema_nuevo(fecha):
         if not hay_disponibilidad(fecha, hora, personas, "barra"):
             messages.error(request, "Ese horario ya no tiene plazas disponibles.")
             return redirect("reserva_hora")
@@ -567,7 +568,7 @@ def crear_pago_stripe(request):
             fecha=fecha,
             hora=hora,
             servicio=periodo_de_hora(hora) or reserva_data.get("turno", "comida"),
-            cena_sistema_antiguo=not nuevo_sistema_activo(fecha, periodo_de_hora(hora)),
+            cena_sistema_antiguo=not cena_con_sistema_nuevo(fecha),
             zona=datos_zona["zona"],
             personas_barra=datos_zona["personas_barra"],
             personas_mesa=datos_zona["personas_mesa"],
@@ -625,6 +626,7 @@ def enviar_email_confirmacion(reserva):
 
     if (
         reserva.servicio == "cena"
+        and not reserva.cena_sistema_antiguo
         and reserva.hora.strftime("%H:%M") in ("20:10", "21:50")
     ):
         inicio = datetime.combine(reserva.fecha, reserva.hora)
@@ -938,7 +940,7 @@ def confirmar_reserva(request):
             fecha=fecha,
             hora=hora,
             servicio=periodo_de_hora(hora) or reserva_data.get("turno", "comida"),
-            cena_sistema_antiguo=not nuevo_sistema_activo(fecha, periodo_de_hora(hora)),
+            cena_sistema_antiguo=not cena_con_sistema_nuevo(fecha),
             zona=datos_zona["zona"],
             personas_barra=datos_zona["personas_barra"],
             personas_mesa=datos_zona["personas_mesa"],
@@ -1215,7 +1217,7 @@ def editar_reserva_cliente(request, reserva_id):
         # Para las nuevas cenas solo existe barra: confirmar directamente
         # sin mostrar la pantalla intermedia de selección de zona.
         cena_nueva = (
-            nuevo_sistema_activo(fecha, servicio_form)
+            cena_con_sistema_nuevo(fecha, reserva.id)
             and hora in TURNOS_CENA_NUEVOS
             and not (
                 servicio_actual == "cena"
@@ -1345,7 +1347,7 @@ def editar_reserva_cliente(request, reserva_id):
         reserva.personas_barra = datos_zona["personas_barra"]
         reserva.personas_mesa = datos_zona["personas_mesa"]
         reserva.recordatorio_enviado = False
-        reserva.cena_sistema_antiguo = not nuevo_sistema_activo(fecha, servicio_form)
+        reserva.cena_sistema_antiguo = not cena_con_sistema_nuevo(fecha, reserva.id)
 
         reserva.save(
             update_fields=[

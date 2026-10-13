@@ -338,6 +338,17 @@ def existe_cena_antigua_activa(fecha, excluir_reserva_id=None):
     ).exists()
 
 
+def cena_con_sistema_antiguo(fecha, excluir_reserva_id=None):
+    """En fechas de transición, cualquier cena antigua activa mantiene el modo anterior."""
+    return (nuevo_sistema_activo(fecha, "cena")
+            and existe_cena_antigua_activa(fecha, excluir_reserva_id))
+
+
+def cena_con_sistema_nuevo(fecha, excluir_reserva_id=None):
+    return (nuevo_sistema_activo(fecha, "cena")
+            and not existe_cena_antigua_activa(fecha, excluir_reserva_id))
+
+
 def hay_disponibilidad(fecha, hora, personas, zona, excluir_reserva_id=None):
     if dia_bloqueado(fecha):
         return False
@@ -354,7 +365,7 @@ def hay_disponibilidad(fecha, hora, personas, zona, excluir_reserva_id=None):
     # NUEVO SISTEMA DE CENAS
     # Desde el 15 de octubre de 2026
     # ==============================================
-    if nuevo_sistema_activo(fecha, "cena") and hora in TURNOS_CENA_NUEVOS:
+    if cena_con_sistema_nuevo(fecha, excluir_reserva_id) and hora in TURNOS_CENA_NUEVOS:
         if existe_cena_antigua_activa(fecha, excluir_reserva_id):
             return False
 
@@ -381,7 +392,7 @@ def hay_disponibilidad(fecha, hora, personas, zona, excluir_reserva_id=None):
 
     # Impedir entradas antiguas de cena desde la activación.
     if (
-        nuevo_sistema_activo(fecha, "cena")
+        cena_con_sistema_nuevo(fecha, excluir_reserva_id)
         and periodo_de_hora(hora) == "cena"
     ):
         return False
@@ -514,7 +525,7 @@ def combinaciones_posibles(fecha, hora, personas, excluir_reserva_id=None):
 def zonas_disponibles(fecha, hora, personas, excluir_reserva_id=None):
         # NUEVO SISTEMA DE CENAS
     if (
-        nuevo_sistema_activo(fecha, "cena")
+        cena_con_sistema_nuevo(fecha, excluir_reserva_id)
         and periodo_de_hora(hora) == "cena"
     ):
         if not hay_disponibilidad(
@@ -660,7 +671,7 @@ def horas_llegada_para_turno(fecha, turno, excluir_reserva_id=None):
     """
 
     # NUEVO SISTEMA DE CENAS
-    if turno == "cena" and nuevo_sistema_activo(fecha, "cena"):
+    if turno == "cena" and cena_con_sistema_nuevo(fecha, excluir_reserva_id):
         return horas_llegada_nueva_cena(fecha)
 
     # SISTEMA ANTERIOR
@@ -726,7 +737,7 @@ def resumen_calendario_dia(fecha, excluir_reserva_id=None):
     for turno_base in obtener_turnos_reservables_para_fecha(fecha):
         servicio = "Cena" if turno_base == time(20, 0) else "Comida"
 
-        if servicio == "Cena" and nuevo_sistema_activo(fecha, "cena"):
+        if servicio == "Cena" and cena_con_sistema_nuevo(fecha, excluir_reserva_id):
             # Cada turno tiene su propia capacidad. Las reservas antiguas
             # que se solapan se descuentan mediante el cálculo por intervalos.
             turnos = []
@@ -864,7 +875,7 @@ def plazas_libres_nueva_cena(
     Tiene en cuenta las reservas antiguas y nuevas.
     """
 
-    if not nuevo_sistema_activo(fecha, "cena"):
+    if not cena_con_sistema_nuevo(fecha, excluir_reserva_id):
         return 0
 
     if hora not in TURNOS_CENA_NUEVOS:
@@ -898,7 +909,7 @@ def horas_llegada_nueva_cena(fecha):
     if not nuevo_sistema_activo(fecha, "cena"):
         return []
 
-    if dia_bloqueado(fecha) or existe_cena_antigua_activa(fecha):
+    if dia_bloqueado(fecha) or not cena_con_sistema_nuevo(fecha):
         return []
 
     if time(20, 0) not in obtener_turnos_para_fecha(fecha):
