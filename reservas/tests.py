@@ -7,121 +7,125 @@ from reservas.services.disponibilidad import plazas_libres_nueva_cena
 from reservas.services.disponibilidad import hay_disponibilidad
 
 class TestNuevosTurnosCena(TestCase):
-
     def setUp(self):
         self.fecha = date(2026, 10, 16)
 
-    def crear_reserva(self, hora, personas, zona="barra"):
+    def crear_reserva(self, hora, personas, zona="barra", antigua=True, estado="confirmada"):
         return Reserva.objects.create(
-            nombre="Cliente de prueba",
-            email="prueba@example.com",
-            telefono="600123456",
-            fecha=self.fecha,
-            hora=hora,
-            servicio="cena",
-            personas=personas,
-            zona=zona,
-            estado="confirmada",
+            nombre="Cliente de prueba", email="prueba@example.com",
+            telefono="600123456", fecha=self.fecha, hora=hora,
+            servicio="cena", personas=personas, zona=zona,
+            estado=estado, cena_sistema_antiguo=antigua,
         )
 
-    def test_sin_reservas(self):
-        self.assertEqual(
-            plazas_libres_nueva_cena(self.fecha, time(20, 10)),
-            10,
-        )
-        self.assertEqual(
-            plazas_libres_nueva_cena(self.fecha, time(21, 50)),
-            10,
-        )
+    def test_dia_sin_cenas_anteriores(self):
+        for hora in (time(20, 10), time(21, 50)):
+            self.assertEqual(plazas_libres_nueva_cena(self.fecha, hora), 10)
+            self.assertTrue(hay_disponibilidad(self.fecha, hora, 2, "barra"))
 
-    def test_reserva_antigua_solapada(self):
-        # Una reserva antigua de 4 personas a las 20:30.
-        # Su ocupación provisional es 20:30–22:00.
-        self.crear_reserva(time(20, 30), 4)
+    def test_cena_antigua_barra_bloquea_ambos_turnos(self):
+        self.crear_reserva(time(20, 30), 2)
+        for hora in (time(20, 10), time(21, 50)):
+            self.assertEqual(plazas_libres_nueva_cena(self.fecha, hora), 0)
+            self.assertFalse(hay_disponibilidad(self.fecha, hora, 1, "barra"))
+
+    def test_cena_antigua_mesa_tambien_bloquea(self):
+        self.crear_reserva(time(21, 0), 2, "mesa")
+        self.assertFalse(hay_disponibilidad(self.fecha, time(20, 10), 1, "barra"))
+
+    def test_cancelada_no_bloquea(self):
+        self.crear_reserva(time(20, 30), 2, estado="cancelada")
+        self.assertEqual(plazas_libres_nueva_cena(self.fecha, time(20, 10)), 10)
+
+    def test_nuevas_reservas_comparten_turno_y_no_bloquean_el_segundo(self):
+        self.crear_reserva(time(20, 10), 8, antigua=False)
+        self.assertEqual(plazas_libres_nueva_cena(self.fecha, time(20, 10)), 2)
+        self.assertEqual(plazas_libres_nueva_cena(self.fecha, time(21, 50)), 10)
+
+    def test_rechaza_horarios_y_zonas_antiguas(self):
+        self.assertFalse(hay_disponibilidad(self.fecha, time(20, 30), 2, "barra"))
+        self.assertFalse(hay_disponibilidad(self.fecha, time(20, 10), 2, "mesa"))
+        self.assertFalse(hay_disponibilidad(self.fecha, time(20, 10), 11, "barra"))
+
+    def test_aforo_maximo_diez_personas_por_turno(self):
+        primer_turno = time(20, 10)
+        segundo_turno = time(21, 50)
+
+        # Primera reserva: 6 personas.
+        self.crear_reserva(primer_turno, 6, antigua=False)
 
         self.assertEqual(
-            plazas_libres_nueva_cena(self.fecha, time(20, 10)),
-            6,
-        )
-        self.assertEqual(
-            plazas_libres_nueva_cena(self.fecha, time(21, 50)),
-            6,
-        )
-
-    def test_dos_reservas_antiguas(self):
-        self.crear_reserva(time(20, 30), 4)
-        self.crear_reserva(time(21, 0), 2)
-
-        self.assertEqual(
-            plazas_libres_nueva_cena(self.fecha, time(20, 10)),
+            plazas_libres_nueva_cena(self.fecha, primer_turno),
             4,
         )
+
+        # Segunda reserva: 4 personas.
+        self.crear_reserva(primer_turno, 4, antigua=False)
+
+        # Primer turno completo.
         self.assertEqual(
-            plazas_libres_nueva_cena(self.fecha, time(21, 50)),
-            4,
+            plazas_libres_nueva_cena(self.fecha, primer_turno),
+            0,
         )
 
-    def test_turnos_independientes(self):
-        # Una reserva nueva a las 20:10 termina a las 21:40.
-        self.crear_reserva(time(20, 10), 8)
-
-        self.assertEqual(
-            plazas_libres_nueva_cena(self.fecha, time(20, 10)),
-            2,
+        # No se puede reservar ni una persona más.
+        self.assertFalse(
+            hay_disponibilidad(self.fecha, primer_turno, 1, "barra")
         )
+
+        # El segundo turno sigue completamente disponible.
         self.assertEqual(
-            plazas_libres_nueva_cena(self.fecha, time(21, 50)),
+            plazas_libres_nueva_cena(self.fecha, segundo_turno),
             10,
         )
 
-    def test_reserva_antigua_de_mesa(self):
-        # Las mesas antiguas se respetan, pero no consumen
-        # plazas físicas de barra.
-        self.crear_reserva(time(20, 30), 4, "mesa")
-
-        self.assertEqual(
-            plazas_libres_nueva_cena(self.fecha, time(20, 10)),
-            10,
-        )
-
-    def test_acepta_nuevos_turnos(self):
         self.assertTrue(
-            hay_disponibilidad(self.fecha, time(20, 10), 2, "barra")
-        )
-        self.assertTrue(
-            hay_disponibilidad(self.fecha, time(21, 50), 2, "barra")
+            hay_disponibilidad(self.fecha, segundo_turno, 10, "barra")
         )
 
-    def test_rechaza_horarios_antiguos(self):
-        self.assertFalse(
-            hay_disponibilidad(self.fecha, time(20, 30), 2, "barra")
-        )
-        self.assertFalse(
-            hay_disponibilidad(self.fecha, time(21, 0), 2, "barra")
+    def test_cliente_no_puede_modificar_cena_antigua(self):
+        from django.urls import reverse
+
+        reserva = self.crear_reserva(
+            time(21, 50),
+            3,
+            zona="mesa",
+            antigua=True,
         )
 
-    def test_rechaza_mesas_y_combinadas(self):
-        self.assertFalse(
-            hay_disponibilidad(self.fecha, time(20, 10), 2, "mesa")
-        )
-        self.assertFalse(
-            hay_disponibilidad(self.fecha, time(20, 10), 4, "combinada:2:2")
+        url = reverse(
+            "editar_reserva_cliente",
+            kwargs={"reserva_id": reserva.id},
         )
 
-    def test_rechaza_mas_de_diez_personas(self):
-        self.assertFalse(
-            hay_disponibilidad(self.fecha, time(20, 10), 11, "barra")
+        respuesta = self.client.post(
+            url,
+            {
+                "accion": "confirmar",
+                "fecha": self.fecha.isoformat(),
+                "hora": "20:10",
+                "servicio": "cena",
+                "personas": "5",
+                "zona": "barra",
+            },
         )
 
-    def test_respeta_reservas_antiguas(self):
-        self.crear_reserva(time(20, 30), 8)
+        reserva.refresh_from_db()
+
+        self.assertEqual(respuesta.status_code, 302)
+        mensajes = [str(mensaje) for mensaje in list(respuesta.wsgi_request._messages)]
 
         self.assertTrue(
-            hay_disponibilidad(self.fecha, time(20, 10), 2, "barra")
+            any(
+                "Esta reserva pertenece al sistema anterior" in mensaje
+                for mensaje in mensajes
+            ),
+            f"Se esperaba el bloqueo de reserva antigua. Mensajes: {mensajes}",
         )
-        self.assertFalse(
-            hay_disponibilidad(self.fecha, time(20, 10), 3, "barra")
-        )
+        self.assertEqual(reserva.hora, time(21, 50))
+        self.assertEqual(reserva.personas, 3)
+        self.assertEqual(reserva.zona, "mesa")
+        self.assertTrue(reserva.cena_sistema_antiguo)
 
 class TestHorarioComida(TestCase):
     def test_horas_comida_ambos_extremos_incluidos(self):
@@ -140,3 +144,4 @@ class TestHorarioComida(TestCase):
             horas_llegada_para_turno(date(2026, 10, 16), "cena"),
             [time(20, 10), time(21, 50)],
         )
+

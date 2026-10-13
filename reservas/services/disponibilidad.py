@@ -331,6 +331,13 @@ def plazas_disponibles_para_reserva(fecha, hora, personas, zona, excluir_reserva
 
     return plazas_disponibles(fecha, hora, zona, excluir_reserva_id)
 
+def existe_cena_antigua_activa(fecha, excluir_reserva_id=None):
+    """Bloquea toda la cena si queda cualquier reserva antigua activa, incluso en mesa."""
+    return reservas_que_ocupan(excluir_reserva_id).filter(
+        fecha=fecha, servicio="cena", cena_sistema_antiguo=True
+    ).exists()
+
+
 def hay_disponibilidad(fecha, hora, personas, zona, excluir_reserva_id=None):
     if dia_bloqueado(fecha):
         return False
@@ -348,6 +355,8 @@ def hay_disponibilidad(fecha, hora, personas, zona, excluir_reserva_id=None):
     # Desde el 15 de octubre de 2026
     # ==============================================
     if nuevo_sistema_activo(fecha, "cena") and hora in TURNOS_CENA_NUEVOS:
+        if existe_cena_antigua_activa(fecha, excluir_reserva_id):
+            return False
 
         # Comprobar que el restaurante abre para cenar.
         if time(20, 0) not in obtener_turnos_para_fecha(fecha):
@@ -801,12 +810,8 @@ def ocupacion_barra_intervalo(
     Calcula el máximo número de plazas de barra ocupadas
     simultáneamente durante un intervalo.
 
-    Incluye reservas antiguas y nuevas.
-    No modifica ninguna reserva existente.
-
-    IMPORTANTE:
-    Se supone provisionalmente una duración de 90 minutos
-    para las reservas antiguas de cena.
+    Solo se usa cuando no hay cenas antiguas activas.
+    Las cenas nuevas duran 90 minutos.
     """
     inicio = datetime.combine(fecha, hora_inicio)
     fin = inicio + duracion
@@ -865,6 +870,9 @@ def plazas_libres_nueva_cena(
     if hora not in TURNOS_CENA_NUEVOS:
         return 0
 
+    if existe_cena_antigua_activa(fecha, excluir_reserva_id):
+        return 0
+
     if dia_bloqueado(fecha):
         return 0
 
@@ -890,7 +898,7 @@ def horas_llegada_nueva_cena(fecha):
     if not nuevo_sistema_activo(fecha, "cena"):
         return []
 
-    if dia_bloqueado(fecha):
+    if dia_bloqueado(fecha) or existe_cena_antigua_activa(fecha):
         return []
 
     if time(20, 0) not in obtener_turnos_para_fecha(fecha):

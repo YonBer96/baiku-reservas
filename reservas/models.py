@@ -53,6 +53,9 @@ class Reserva(models.Model):
         default="pendiente_pago",
     )
 
+    # Las reservas existentes se migran como antiguas; las nuevas cenas se marcan explícitamente.
+    cena_sistema_antiguo = models.BooleanField(default=True)
+
     importe_anticipo = models.PositiveIntegerField(default=0)
 
     stripe_session_id = models.CharField(

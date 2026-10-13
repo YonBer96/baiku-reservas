@@ -567,6 +567,7 @@ def crear_pago_stripe(request):
             fecha=fecha,
             hora=hora,
             servicio=periodo_de_hora(hora) or reserva_data.get("turno", "comida"),
+            cena_sistema_antiguo=not nuevo_sistema_activo(fecha, periodo_de_hora(hora)),
             zona=datos_zona["zona"],
             personas_barra=datos_zona["personas_barra"],
             personas_mesa=datos_zona["personas_mesa"],
@@ -937,6 +938,7 @@ def confirmar_reserva(request):
             fecha=fecha,
             hora=hora,
             servicio=periodo_de_hora(hora) or reserva_data.get("turno", "comida"),
+            cena_sistema_antiguo=not nuevo_sistema_activo(fecha, periodo_de_hora(hora)),
             zona=datos_zona["zona"],
             personas_barra=datos_zona["personas_barra"],
             personas_mesa=datos_zona["personas_mesa"],
@@ -1138,6 +1140,7 @@ def editar_reserva_cliente(request, reserva_id):
             and servicio_form == servicio_actual
             and hora == reserva.hora
         )
+        
 
         cambia_fecha_hora_o_personas = (
             fecha != reserva.fecha
@@ -1149,28 +1152,29 @@ def editar_reserva_cliente(request, reserva_id):
         # Las cenas nuevas solo admiten los dos horarios
         # establecidos. Las reservas antiguas pueden
         # conservar su hora si no se modifican.
-        if nuevo_sistema_activo(fecha, servicio_form):
-            if (
-                cambia_fecha_hora_o_personas
-                and hora not in TURNOS_CENA_NUEVOS
-            ):
-                messages.error(
-                    request,
-                    "Para modificar esta cena debes elegir "
-                    "20:10 o 21:50."
-                )
-                return redirect(
-                    "editar_reserva_cliente",
-                    reserva_id=reserva.id,
-                )
+        mantiene_hueco_original = (
+            fecha == reserva.fecha
+            and servicio_form == servicio_actual
+            and hora == reserva.hora
+        )
 
+        cambia_fecha_hora_o_personas = (
+            fecha != reserva.fecha
+            or hora != reserva.hora
+            or personas != reserva.personas
+            or servicio_form != servicio_actual
+        )
+
+        # Proteger las reservas antiguas de cena.
         if (
-            hora not in horas_disponibles
-            and not mantiene_hueco_original
+            servicio_actual == "cena"
+            and reserva.cena_sistema_antiguo
+            and cambia_fecha_hora_o_personas
         ):
             messages.error(
                 request,
-                "Esa hora ya no está disponible."
+                "Esta reserva pertenece al sistema anterior. "
+                "Para modificarla, contacta con el restaurante."
             )
             return redirect(
                 "editar_reserva_cliente",
@@ -1213,7 +1217,12 @@ def editar_reserva_cliente(request, reserva_id):
         cena_nueva = (
             nuevo_sistema_activo(fecha, servicio_form)
             and hora in TURNOS_CENA_NUEVOS
+            and not (
+                servicio_actual == "cena"
+                and reserva.cena_sistema_antiguo
+            )
         )
+
         if accion == "buscar_zonas" and cena_nueva:
             accion = "confirmar"
         elif accion == "buscar_zonas":
@@ -1260,7 +1269,20 @@ def editar_reserva_cliente(request, reserva_id):
             and servicio_form == servicio_actual
             and zona == reserva.zona
         )
-
+        if (
+            servicio_actual == "cena"
+            and reserva.cena_sistema_antiguo
+            and not conserva_reserva_original
+        ):
+            messages.error(
+                request,
+                "Para modificar esta reserva antigua, "
+                "contacta con el restaurante."
+            )
+            return redirect(
+                "editar_reserva_cliente",
+                reserva_id=reserva.id,
+            )
         if (
             zona not in zonas_validas
             and not conserva_reserva_original
@@ -1323,6 +1345,7 @@ def editar_reserva_cliente(request, reserva_id):
         reserva.personas_barra = datos_zona["personas_barra"]
         reserva.personas_mesa = datos_zona["personas_mesa"]
         reserva.recordatorio_enviado = False
+        reserva.cena_sistema_antiguo = not nuevo_sistema_activo(fecha, servicio_form)
 
         reserva.save(
             update_fields=[
@@ -1334,6 +1357,7 @@ def editar_reserva_cliente(request, reserva_id):
                 "personas_barra",
                 "personas_mesa",
                 "recordatorio_enviado",
+                "cena_sistema_antiguo",
                 "actualizado",
             ]
         )
