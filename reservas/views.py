@@ -1,47 +1,49 @@
-from datetime import date, datetime, timedelta, time
-
+import calendar
 import logging
+from datetime import datetime, time, timedelta
 
-import stripe
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.mail import send_mail
+from django.core.cache import cache
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db import transaction
-from django.http import HttpResponse, JsonResponse
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from datetime import datetime, timedelta
-from django.utils import timezone
-from django.db.models import Q
-from .utils import normalizar_texto, normalizar_telefono
+
+from .configuracion_turnos import TURNOS_CENA as TURNOS_CENA_NUEVOS
+from .emails import (
+    enviar_email_cancelacion,
+    enviar_email_confirmacion,
+    enviar_email_modificacion,
+)
 from .models import BloqueoDia, Reserva
 from .services.disponibilidad import (
     CAPACIDAD_BARRA,
-    CAPACIDAD_MESA,
-    CAPACIDAD_TOTAL,
     MAX_PERSONAS_RESERVA,
+    bloquear_fecha_para_reservar,
+    cena_con_sistema_nuevo,
+    datos_combinada,
     hay_disponibilidad,
-    mapa_ocupacion,
-    turnos_disponibles,
-    zonas_disponibles,
     horas_llegada_para_turno,
     periodo_de_hora,
     resumen_calendario_dia,
+    turnos_disponibles,
     zona_base,
-    datos_combinada,
-    cena_con_sistema_nuevo,
+    zonas_disponibles,
 )
-from .configuracion_turnos import (
-    nuevo_sistema_activo,
-    TURNOS_CENA as TURNOS_CENA_NUEVOS,
-)
+from .utils import normalizar_telefono, normalizar_texto
 
-IMPORTE_ANTICIPO = 1000  # 10€ total por reserva, en céntimos
-MINUTOS_EXPIRACION_PAGO = 15
 logger = logging.getLogger(__name__)
+
+# Clave de sesión con los IDs de reservas que el cliente ha demostrado que son
+# suyas (buscándolas con email + teléfono o creándolas en esta sesión).
+SESION_RESERVAS_AUTORIZADAS = "reservas_autorizadas"
+
+SEGUNDOS_CACHE_CALENDARIO = 30
 
 PASOS_RESERVA = {
     "fecha": {"numero": 1, "total": 7, "titulo": "Fecha"},
@@ -52,6 +54,31 @@ PASOS_RESERVA = {
     "datos": {"numero": 6, "total": 7, "titulo": "Datos"},
     "resumen": {"numero": 7, "total": 7, "titulo": "Confirmar"},
 }
+
+
+# ==================================================
+# PERMISOS DEL CLIENTE SOBRE SUS RESERVAS
+# ==================================================
+
+def _autorizar_reservas(request, ids):
+    autorizadas = set(request.session.get(SESION_RESERVAS_AUTORIZADAS, []))
+    autorizadas.update(int(i) for i in ids)
+    request.session[SESION_RESERVAS_AUTORIZADAS] = sorted(autorizadas)
+    request.session.modified = True
+
+
+def _reserva_autorizada(request, reserva_id):
+    if request.user.is_authenticated and request.user.is_staff:
+        return True
+    return int(reserva_id) in request.session.get(SESION_RESERVAS_AUTORIZADAS, [])
+
+
+def _reserva_ya_pasada(reserva):
+    ahora = timezone.localtime()
+    return (
+        reserva.fecha < ahora.date()
+        or (reserva.fecha == ahora.date() and reserva.hora <= ahora.time())
+    )
 
 
 def calendario_reservas_api(request):
@@ -65,15 +92,30 @@ def calendario_reservas_api(request):
     except (TypeError, ValueError):
         excluir_reserva_id = None
 
+    # Solo se puede "liberar" en el cálculo una reserva propia.
+    if excluir_reserva_id and not _reserva_autorizada(request, excluir_reserva_id):
+        excluir_reserva_id = None
+
+    hoy = timezone.localdate()
+
     try:
-        fecha_inicio = _fecha_desde_texto(inicio_txt) if inicio_txt else date.today()
+        fecha_inicio = _fecha_desde_texto(inicio_txt) if inicio_txt else hoy
     except (TypeError, ValueError):
-        fecha_inicio = date.today()
+        fecha_inicio = hoy
+
+    fecha_inicio = max(fecha_inicio, hoy)
 
     try:
         dias = min(max(int(dias_txt), 1), 90)
     except (TypeError, ValueError):
         dias = 45
+
+    # El cálculo hace muchas consultas por día: se cachea unos segundos.
+    # La disponibilidad real se vuelve a comprobar siempre al confirmar.
+    clave_cache = f"calendario:{fecha_inicio.isoformat()}:{dias}:{excluir_reserva_id or 0}"
+    respuesta = cache.get(clave_cache)
+    if respuesta is not None:
+        return JsonResponse(respuesta)
 
     datos = []
     for offset in range(dias):
@@ -89,14 +131,19 @@ def calendario_reservas_api(request):
             "bloqueado": resumen["bloqueado"],
             "detalles": resumen["detalles"],
             "mensaje": resumen["mensaje"],
-        })  
+        })
 
-    return JsonResponse({"dias": datos})
+    respuesta = {"dias": datos}
+    cache.set(clave_cache, respuesta, SEGUNDOS_CACHE_CALENDARIO)
+    return JsonResponse(respuesta)
 
 
 
 def horas_edicion_reserva_api(request, reserva_id):
     """Devuelve las horas válidas al cambiar fecha o servicio al editar."""
+    if not _reserva_autorizada(request, reserva_id):
+        return JsonResponse({"horas": [], "error": "No autorizado."}, status=403)
+
     reserva = get_object_or_404(Reserva, id=reserva_id)
     fecha_txt = request.GET.get("fecha")
     servicio = request.GET.get("servicio")
@@ -257,7 +304,7 @@ def reserva_fecha(request):
             messages.error(request, "Fecha no válida.")
             return redirect("reserva_fecha")
 
-        if fecha < date.today():
+        if fecha < timezone.localdate():
             messages.error(request, "No puedes reservar una fecha pasada.")
             return redirect("reserva_fecha")
 
@@ -280,7 +327,7 @@ def reserva_fecha(request):
         {
             "reserva": reserva,
             "paso": PASOS_RESERVA["fecha"],
-            "hoy": date.today(),
+            "hoy": timezone.localdate(),
         },
     )
 
@@ -293,7 +340,7 @@ def reserva_personas(request):
 
     fecha = _fecha_desde_texto(reserva["fecha"])
     motivo_no_reservable = _motivo_fecha_no_reservable(fecha)
-    if fecha < date.today() or motivo_no_reservable:
+    if fecha < timezone.localdate() or motivo_no_reservable:
         messages.error(request, motivo_no_reservable or "No puedes reservar una fecha pasada.")
         return redirect("reserva_fecha")
 
@@ -412,7 +459,8 @@ def reserva_hora(request):
 
         # En las cenas nuevas solo existe una zona: barra.
         # La asignamos sin mostrar un paso innecesario al cliente.
-        if cena_con_sistema_nuevo(fecha):
+        # (Solo en cena: la comida sigue eligiendo barra / mesa.)
+        if turno_tipo == "cena" and cena_con_sistema_nuevo(fecha):
             guardar_reserva_session(request, {
                 "zona": "barra",
                 "zona_opcion": "barra",
@@ -448,7 +496,7 @@ def reserva_zona(request):
     personas = int(reserva["personas"])
     zonas = zonas_disponibles(fecha, hora, personas)
 
-    if cena_con_sistema_nuevo(fecha):
+    if periodo_de_hora(hora) == "cena" and cena_con_sistema_nuevo(fecha):
         if not hay_disponibilidad(fecha, hora, personas, "barra"):
             messages.error(request, "Ese horario ya no tiene plazas disponibles.")
             return redirect("reserva_hora")
@@ -463,6 +511,11 @@ def reserva_zona(request):
 
     if request.method == "POST":
         zona = request.POST.get("zona")
+
+        # Solo se aceptan las zonas que se le han ofrecido al cliente.
+        if zona not in {opcion["id"] for opcion in zonas}:
+            messages.error(request, "Esa zona ya no está disponible.")
+            return redirect("reserva_zona")
 
         if not hay_disponibilidad(fecha, hora, personas, zona):
             messages.error(request, "Esa zona ya no está disponible.")
@@ -502,6 +555,16 @@ def reserva_datos(request):
             messages.error(request, "Los emails no coinciden. Revisa los datos.")
             return redirect("reserva_datos")
 
+        try:
+            validate_email(email)
+        except ValidationError:
+            messages.error(request, "El email no es válido.")
+            return redirect("reserva_datos")
+
+        if len(normalizar_telefono(telefono)) < 9:
+            messages.error(request, "El teléfono no es válido.")
+            return redirect("reserva_datos")
+
         guardar_reserva_session(
             request,
             {"nombre": nombre, "email": email, "telefono": telefono, "notas": notas},
@@ -529,222 +592,19 @@ def reserva_resumen(request):
         "reservas/reserva_resumen.html",
         {
             "reserva": reserva,
-            "importe": IMPORTE_ANTICIPO,
-            "importe_euros": IMPORTE_ANTICIPO // 100,
+            "fecha": _fecha_desde_texto(reserva["fecha"]),
             "paso": PASOS_RESERVA["resumen"],
         },
     )
 
 
-@require_POST
-def crear_pago_stripe(request):
-    reserva_data = obtener_reserva_session(request)
-    campos = ["personas", "fecha", "hora", "zona", "nombre", "email", "telefono"]
-
-    if not all(reserva_data.get(campo) for campo in campos):
-        return redirect("reserva_fecha")
-
-    if not settings.STRIPE_SECRET_KEY:
-        messages.error(request, "Stripe no está configurado todavía.")
-        return redirect("reserva_resumen")
-
-    fecha = _fecha_desde_texto(reserva_data["fecha"])
-    hora = _hora_desde_texto(reserva_data["hora"])
-    personas = int(reserva_data["personas"])
-    zona = reserva_data["zona"]
-    zona_opcion = reserva_data.get("zona_opcion", zona)
-    datos_zona = _normalizar_zona_para_guardar(zona_opcion, personas)
-
-    with transaction.atomic():
-        if not hay_disponibilidad(fecha, hora, personas, zona_opcion):
-            messages.error(request, "Lo sentimos, esa opción ya no está disponible.")
-            return redirect("reserva_fecha")
-
-        reserva = Reserva.objects.create(
-            nombre=reserva_data["nombre"],
-            email=reserva_data["email"],
-            telefono=reserva_data["telefono"],
-            personas=personas,
-            fecha=fecha,
-            hora=hora,
-            servicio=periodo_de_hora(hora) or reserva_data.get("turno", "comida"),
-            cena_sistema_antiguo=not cena_con_sistema_nuevo(fecha),
-            zona=datos_zona["zona"],
-            personas_barra=datos_zona["personas_barra"],
-            personas_mesa=datos_zona["personas_mesa"],
-            notas=reserva_data.get("notas", ""),
-            importe_anticipo=IMPORTE_ANTICIPO,
-            estado="pendiente_pago",
-            expira_en=timezone.now() + timedelta(minutes=MINUTOS_EXPIRACION_PAGO),
-        )
-
-    stripe.api_key = settings.STRIPE_SECRET_KEY
-
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        mode="payment",
-        customer_email=reserva.email,
-        line_items=[
-            {
-                "price_data": {
-                    "currency": "eur",
-                    "product_data": {"name": "Reserva Baiku - anticipo reserva"},
-                    "unit_amount": IMPORTE_ANTICIPO,
-                },
-                "quantity": 1,
-            }
-        ],
-        success_url=f"{settings.SITE_URL}/pago/exito/?session_id={{CHECKOUT_SESSION_ID}}",
-        cancel_url=f"{settings.SITE_URL}/pago/cancelado/",
-        metadata={"reserva_id": reserva.id},
-    )
-
-    reserva.stripe_session_id = session.id
-    reserva.save(update_fields=["stripe_session_id"])
-
-    return redirect(session.url)
-
-
-def enviar_email_confirmacion(reserva):
-    asunto = "Reserva confirmada en Baiku"
-
-    zona_texto = reserva.get_zona_display()
-
-    if reserva.zona == "combinada" and (
-        reserva.personas_barra or reserva.personas_mesa
-    ):
-        zona_texto = (
-            f"Barra + mesas "
-            f"({reserva.personas_barra} en barra + "
-            f"{reserva.personas_mesa} en mesa)"
-        )
-
-    enlace = "https://baiku-reservas.onrender.com/gestionar-reserva/"
-
-    # Aviso exclusivo para los nuevos turnos de cena
-    aviso_cena = ""
-
-    if (
-        reserva.servicio == "cena"
-        and not reserva.cena_sistema_antiguo
-        and reserva.hora.strftime("%H:%M") in ("20:10", "21:50")
-    ):
-        inicio = datetime.combine(reserva.fecha, reserva.hora)
-        fin = inicio + timedelta(minutes=90)
-
-        aviso_cena = (
-            "INFORMACIÓN IMPORTANTE SOBRE TU RESERVA\n"
-            "El servicio de cena tiene una duración máxima de "
-            "90 minutos.\n"
-            f"Tu turno comienza a las {inicio.strftime('%H:%M')} "
-            f"y finaliza a las {fin.strftime('%H:%M')}.\n"
-            "Te agradecemos tu puntualidad para que puedas "
-            "disfrutar de tu experiencia en Baiku.\n\n"
-        )
-
-    mensaje = (
-        f"Hola {reserva.nombre},\n\n"
-        "Tu reserva en Baiku ha sido confirmada.\n\n"
-        "DETALLES DE LA RESERVA\n"
-        f"Fecha: {reserva.fecha.strftime('%d/%m/%Y')}\n"
-        f"Hora: {reserva.hora.strftime('%H:%M')}\n"
-        f"Personas: {reserva.personas}\n"
-        f"Zona: {zona_texto}\n\n"
-        f"{aviso_cena}"
-        "Puedes gestionar o cancelar tu reserva desde:\n"
-        f"{enlace}\n\n"
-        "Muchas gracias,\n"
-        "Baiku"
-    )
-
-    send_mail(
-        asunto,
-        mensaje,
-        settings.DEFAULT_FROM_EMAIL,
-        [reserva.email],
-        fail_silently=False,
-    )
-
-def enviar_email_modificacion(reserva):
-    asunto = "Tu reserva en Baiku ha sido modificada"
-    zona_texto = reserva.get_zona_display()
-    if reserva.zona == "combinada" and (reserva.personas_barra or reserva.personas_mesa):
-        zona_texto = f"Barra + mesas ({reserva.personas_barra} en barra + {reserva.personas_mesa} en mesa)"
-
-    enlace = "https://baiku-reservas.onrender.com/gestionar-reserva/"
-
-    mensaje = (
-        f"Hola {reserva.nombre},\n\n"
-        "Tu reserva ha sido modificada correctamente.\n\n"
-        "NUEVOS DATOS\n"
-        f"Fecha: {reserva.fecha.strftime('%d/%m/%Y')}\n"
-        f"Hora: {reserva.hora.strftime('%H:%M')}\n"
-        f"Personas: {reserva.personas}\n"
-        f"Zona: {zona_texto}\n\n"
-        "Puedes volver a gestionarla desde:\n"
-        f"{enlace}\n\n"
-        "Gracias,\n"
-        "Baiku"
-    )
-
-    send_mail(
-        asunto,
-        mensaje,
-        settings.DEFAULT_FROM_EMAIL,
-        [reserva.email],
-        fail_silently=False,
-    )
-
-@csrf_exempt
-def stripe_webhook(request):
-    payload = request.body
-    sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
-
-    try:
-        event = stripe.Webhook.construct_event(payload, sig_header, settings.STRIPE_WEBHOOK_SECRET)
-    except Exception:
-        return HttpResponse(status=400)
-
-    if event["type"] == "checkout.session.completed":
-        session = event["data"]["object"]
-        reserva_id = session["metadata"].get("reserva_id")
-        reserva = Reserva.objects.filter(id=reserva_id).first()
-
-        if reserva and reserva.estado != "confirmada":
-            reserva.estado = "confirmada"
-            reserva.stripe_session_id = session["id"]
-            reserva.expira_en = None
-            reserva.save(update_fields=["estado", "stripe_session_id", "expira_en", "actualizado"])
-            _enviar_email_seguro(enviar_email_confirmacion, reserva)
-
-    return HttpResponse(status=200)
-
-
-def pago_exito(request):
-    session_id = request.GET.get("session_id")
-
-    if session_id and settings.STRIPE_SECRET_KEY:
-        try:
-            stripe.api_key = settings.STRIPE_SECRET_KEY
-            session = stripe.checkout.Session.retrieve(session_id)
-            reserva_id = session.metadata.get("reserva_id")
-            reserva = Reserva.objects.filter(id=reserva_id).first()
-
-            if reserva and reserva.estado != "confirmada":
-                reserva.estado = "confirmada"
-                reserva.stripe_session_id = session.id
-                reserva.expira_en = None
-                reserva.save(update_fields=["estado", "stripe_session_id", "expira_en", "actualizado"])
-                _enviar_email_seguro(enviar_email_confirmacion, reserva)
-        except Exception:
-            messages.warning(request, "Pago recibido. Si no recibes el email, contacta con Baiku.")
-
-    request.session.pop("reserva", None)
-    return render(request, "reservas/pago_exito.html")
-
-
-def pago_cancelado(request):
-    return render(request, "reservas/pago_cancelado.html")
+def _sumar_meses(fecha, meses):
+    """Mismo día en otro mes; si no existe (31 → 30), usa el último día del mes."""
+    mes_total = fecha.month - 1 + meses
+    anio = fecha.year + mes_total // 12
+    mes = mes_total % 12 + 1
+    ultimo_dia = calendar.monthrange(anio, mes)[1]
+    return fecha.replace(year=anio, month=mes, day=min(fecha.day, ultimo_dia))
 
 
 @login_required
@@ -756,9 +616,9 @@ def staff_hoy(request):
             fecha = _fecha_desde_texto(fecha_txt)
         except ValueError:
             messages.error(request, "Fecha no válida.")
-            fecha = date.today()
+            fecha = timezone.localdate()
     else:
-        fecha = date.today()
+        fecha = timezone.localdate()
 
     reservas = (
     Reserva.objects
@@ -779,10 +639,12 @@ def staff_hoy(request):
         "fecha": fecha,
         "fecha_anterior": fecha - timedelta(days=1),
         "fecha_siguiente": fecha + timedelta(days=1),
+        "mes_anterior": _sumar_meses(fecha, -1),
+        "mes_siguiente": _sumar_meses(fecha, 1),
         "reservas": reservas,
         "total_reservas": reservas.count(),
         "total_personas": total_personas,
-        "hoy": date.today(),
+        "hoy": timezone.localdate(),
     }
 
     return render(request, "reservas/staff_hoy.html", context)
@@ -886,7 +748,8 @@ def cambiar_estado(request, reserva_id):
         reserva.estado = nuevo_estado
         reserva.save(update_fields=["estado", "actualizado"])
 
-    return redirect("staff_hoy")
+    # Volver al día de la reserva, no siempre a hoy.
+    return redirect(f"{reverse('staff_hoy')}?fecha={reserva.fecha.isoformat()}")
 
 
 
@@ -902,12 +765,12 @@ def bloquear_dia(request):
         fecha = _fecha_desde_texto(fecha_txt)
     except (TypeError, ValueError):
         messages.error(request, "Fecha no válida.")
-        return redirect("staff_ocupacion")
+        return redirect("staff_hoy")
 
     BloqueoDia.objects.update_or_create(fecha=fecha, defaults={"motivo": motivo})
     messages.success(request, "Día bloqueado correctamente.")
 
-    return redirect(f"/staff/ocupacion/?fecha={fecha_txt}")
+    return redirect(f"{reverse('staff_hoy')}?fecha={fecha.isoformat()}")
 
 
 
@@ -928,6 +791,8 @@ def confirmar_reserva(request):
     datos_zona = _normalizar_zona_para_guardar(zona_opcion, personas)
 
     with transaction.atomic():
+        bloquear_fecha_para_reservar(fecha)
+
         if not hay_disponibilidad(fecha, hora, personas, zona_opcion):
             messages.error(request, "Lo sentimos, esa opción ya no está disponible.")
             return redirect("reserva_fecha")
@@ -953,6 +818,7 @@ def confirmar_reserva(request):
     _enviar_email_seguro(enviar_email_confirmacion, reserva)
 
     request.session.pop("reserva", None)
+    _autorizar_reservas(request, [reserva.id])
     return render(request, "reservas/pago_exito.html")
 
 
@@ -961,16 +827,23 @@ def gestionar_reserva(request):
 
     if request.method == "POST":
         email = request.POST.get("email", "").strip()
-        telefono = request.POST.get("telefono", "").strip()
+        # El teléfono se guarda solo con dígitos (ver Reserva.save).
+        telefono = normalizar_telefono(request.POST.get("telefono", ""))
 
-        reservas = Reserva.objects.filter(
-            email=email,
-            telefono=telefono,
-        ).exclude(
-            estado="cancelada"
-        ).order_by("fecha", "hora")
+        if email and telefono:
+            reservas = list(
+                Reserva.objects.filter(
+                    email__iexact=email,
+                    telefono=telefono,
+                    fecha__gte=timezone.localdate(),
+                ).exclude(
+                    estado__in=["cancelada", "no_show"]
+                ).order_by("fecha", "hora")
+            )
 
-        if not reservas:
+        if reservas:
+            _autorizar_reservas(request, [r.id for r in reservas])
+        else:
             messages.error(request, "No hemos encontrado reservas con esos datos.")
 
     return render(request, "reservas/gestionar_reserva.html", {"reservas": reservas})
@@ -980,7 +853,15 @@ def gestionar_reserva(request):
 
 @require_POST
 def eliminar_reserva_cliente(request, reserva_id):
+    if not _reserva_autorizada(request, reserva_id):
+        messages.error(request, "Busca tu reserva con tu email y teléfono para gestionarla.")
+        return redirect("gestionar_reserva")
+
     reserva = get_object_or_404(Reserva, id=reserva_id)
+
+    if _reserva_ya_pasada(reserva):
+        messages.error(request, "Esta reserva ya ha pasado y no se puede cancelar.")
+        return redirect("gestionar_reserva")
 
     if reserva.estado == "cancelada":
         messages.error(
@@ -1014,6 +895,10 @@ def eliminar_reserva_cliente(request, reserva_id):
 
 
 def editar_reserva_cliente(request, reserva_id):
+    if not _reserva_autorizada(request, reserva_id):
+        messages.error(request, "Busca tu reserva con tu email y teléfono para gestionarla.")
+        return redirect("gestionar_reserva")
+
     reserva = get_object_or_404(Reserva, id=reserva_id)
 
     if reserva.estado == "cancelada":
@@ -1021,6 +906,10 @@ def editar_reserva_cliente(request, reserva_id):
             request,
             "No se puede modificar una reserva cancelada."
         )
+        return redirect("gestionar_reserva")
+
+    if _reserva_ya_pasada(reserva):
+        messages.error(request, "Esta reserva ya ha pasado y no se puede modificar.")
         return redirect("gestionar_reserva")
 
     servicio_actual = (
@@ -1137,29 +1026,9 @@ def editar_reserva_cliente(request, reserva_id):
             )
         ]
 
-        mantiene_hueco_original = (
-            fecha == reserva.fecha
-            and servicio_form == servicio_actual
-            and hora == reserva.hora
-        )
-        
-
-        cambia_fecha_hora_o_personas = (
-            fecha != reserva.fecha
-            or hora != reserva.hora
-            or personas != reserva.personas
-            or servicio_form != servicio_actual
-        )
-
         # Las cenas nuevas solo admiten los dos horarios
         # establecidos. Las reservas antiguas pueden
         # conservar su hora si no se modifican.
-        mantiene_hueco_original = (
-            fecha == reserva.fecha
-            and servicio_form == servicio_actual
-            and hora == reserva.hora
-        )
-
         cambia_fecha_hora_o_personas = (
             fecha != reserva.fecha
             or hora != reserva.hora
@@ -1299,11 +1168,28 @@ def editar_reserva_cliente(request, reserva_id):
                 reserva_id=reserva.id,
             )
 
+        # Si no cambia nada, no reescribimos la reserva.
+        # Así conservamos también los datos originales
+        # de las reservas antiguas y combinadas.
+        if conserva_reserva_original:
+            messages.success(
+                request,
+                "La reserva se ha mantenido sin cambios."
+            )
+            return redirect("gestionar_reserva")
+
         # --------------------------------------------------
-        # 6. VALIDACIÓN FINAL
+        # 6. VALIDACIÓN FINAL Y GUARDADO
         # --------------------------------------------------
 
-        if not conserva_reserva_original:
+        datos_zona = _normalizar_zona_para_guardar(
+            zona,
+            personas,
+        )
+
+        with transaction.atomic():
+            bloquear_fecha_para_reservar(fecha)
+
             if not hay_disponibilidad(
                 fecha,
                 hora,
@@ -1320,49 +1206,30 @@ def editar_reserva_cliente(request, reserva_id):
                     reserva_id=reserva.id,
                 )
 
-        # Si no cambia nada, no reescribimos la reserva.
-        # Así conservamos también los datos originales
-        # de las reservas antiguas y combinadas.
-        if conserva_reserva_original:
-            messages.success(
-                request,
-                "La reserva se ha mantenido sin cambios."
+            reserva.personas = personas
+            reserva.fecha = fecha
+            reserva.hora = hora
+            reserva.servicio = servicio_form
+            reserva.zona = datos_zona["zona"]
+            reserva.personas_barra = datos_zona["personas_barra"]
+            reserva.personas_mesa = datos_zona["personas_mesa"]
+            reserva.recordatorio_enviado = False
+            reserva.cena_sistema_antiguo = not cena_con_sistema_nuevo(fecha, reserva.id)
+
+            reserva.save(
+                update_fields=[
+                    "personas",
+                    "fecha",
+                    "hora",
+                    "servicio",
+                    "zona",
+                    "personas_barra",
+                    "personas_mesa",
+                    "recordatorio_enviado",
+                    "cena_sistema_antiguo",
+                    "actualizado",
+                ]
             )
-            return redirect("gestionar_reserva")
-
-        # --------------------------------------------------
-        # 7. GUARDAR MODIFICACIÓN
-        # --------------------------------------------------
-
-        datos_zona = _normalizar_zona_para_guardar(
-            zona,
-            personas,
-        )
-
-        reserva.personas = personas
-        reserva.fecha = fecha
-        reserva.hora = hora
-        reserva.servicio = servicio_form
-        reserva.zona = datos_zona["zona"]
-        reserva.personas_barra = datos_zona["personas_barra"]
-        reserva.personas_mesa = datos_zona["personas_mesa"]
-        reserva.recordatorio_enviado = False
-        reserva.cena_sistema_antiguo = not cena_con_sistema_nuevo(fecha, reserva.id)
-
-        reserva.save(
-            update_fields=[
-                "personas",
-                "fecha",
-                "hora",
-                "servicio",
-                "zona",
-                "personas_barra",
-                "personas_mesa",
-                "recordatorio_enviado",
-                "cena_sistema_antiguo",
-                "actualizado",
-            ]
-        )
 
         _enviar_email_seguro(
             enviar_email_modificacion,
@@ -1377,7 +1244,7 @@ def editar_reserva_cliente(request, reserva_id):
         return redirect("gestionar_reserva")
 
     # --------------------------------------------------
-    # 8. MOSTRAR FORMULARIO INICIAL
+    # 7. MOSTRAR FORMULARIO INICIAL
     # --------------------------------------------------
 
     horas_disponibles = horas_llegada_para_turno(
@@ -1411,7 +1278,7 @@ def editar_reserva_cliente(request, reserva_id):
 
 @login_required
 def staff_reservas_count(request):
-    fecha = date.today()
+    fecha = timezone.localdate()
 
     total = (
         Reserva.objects
@@ -1427,38 +1294,3 @@ def staff_reservas_count(request):
     )
 
     return JsonResponse({"total": total})
-
-
-def enviar_email_cancelacion(reserva):
-    asunto = "Tu reserva en Baiku ha sido cancelada"
-
-    zona_texto = reserva.get_zona_display()
-
-    if reserva.zona == "combinada" and (
-        reserva.personas_barra or reserva.personas_mesa
-    ):
-        zona_texto = (
-            f"Barra + mesas "
-            f"({reserva.personas_barra} en barra + "
-            f"{reserva.personas_mesa} en mesa)"
-        )
-
-    mensaje = (
-        f"Hola {reserva.nombre},\n\n"
-        "Tu reserva en Baiku ha sido cancelada correctamente.\n\n"
-        "DATOS CANCELADOS\n"
-        f"Fecha: {reserva.fecha.strftime('%d/%m/%Y')}\n"
-        f"Hora: {reserva.hora.strftime('%H:%M')}\n"
-        f"Personas: {reserva.personas}\n"
-        f"Zona: {zona_texto}\n\n"
-        "Esperamos verte pronto.\n\n"
-        "Baiku"
-    )
-
-    send_mail(
-        asunto,
-        mensaje,
-        settings.DEFAULT_FROM_EMAIL,
-        [reserva.email],
-        fail_silently=False,
-    )

@@ -8,7 +8,7 @@
 
     <div class="summary">
         <div><span>Personas</span><strong>{{ reserva.personas }}</strong></div>
-        <div><span>Fecha</span><strong>{{ reserva.fecha }}</strong></div>
+        <div><span>Fecha</span><strong>{{ fecha|date:"l, d/m/Y"|capfirst }}</strong></div>
         <div><span>Hora</span><strong>{{ reserva.hora }}</strong></div>
         <div><span>Zona</span><strong>{{ reserva.zona_nombre }}</strong></div>
         

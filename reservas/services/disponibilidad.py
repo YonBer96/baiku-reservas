@@ -1,5 +1,6 @@
 from datetime import time, timedelta, datetime, date
 
+from django.db import connection
 from django.db.models import Sum, Q
 from django.utils import timezone
 
@@ -23,6 +24,27 @@ TURNOS_COMIDA = [time(13, 0)]
 TURNOS_CENA = [time(20, 0)]
 
 ESTADOS_QUE_OCUPAN = ["pendiente_pago", "confirmada", "llegado"]
+
+# Última hora de llegada de cada servicio (sistema antiguo). Sirve para saber
+# si un servicio de hoy todavía admite reservas aunque ya haya empezado.
+ULTIMA_LLEGADA_SERVICIO = {
+    time(13, 0): time(15, 0),    # comida: llegadas 13:30 - 15:00
+    time(20, 0): time(22, 15),   # cena: llegadas hasta 22:15 (o 21:50 en el sistema nuevo)
+}
+
+
+def bloquear_fecha_para_reservar(fecha):
+    """
+    Evita que dos reservas simultáneas del mismo día se den por buenas a la vez.
+
+    Debe llamarse dentro de transaction.atomic(), antes de comprobar la
+    disponibilidad. En PostgreSQL usa un advisory lock que se libera al
+    terminar la transacción. En SQLite (desarrollo) las escrituras ya están
+    serializadas, así que no hace nada.
+    """
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s)", [fecha.toordinal()])
 
 
 def etiqueta_turno(hora):
@@ -52,7 +74,9 @@ def obtener_turnos_para_fecha(fecha):
 def obtener_turnos_reservables_para_fecha(fecha):
     """
     Devuelve los servicios que todavía se pueden reservar.
-    Si es hoy, oculta solo los servicios que ya han empezado.
+    Si es hoy, oculta solo los servicios cuya última llegada ya ha pasado
+    (por ejemplo, a las 20:30 todavía se puede reservar el turno de 21:50).
+    Las horas concretas se filtran después en horas_llegada_para_turno().
     """
     turnos = obtener_turnos_para_fecha(fecha)
 
@@ -60,18 +84,12 @@ def obtener_turnos_reservables_para_fecha(fecha):
         return turnos
 
     ahora = timezone.localtime().time()
-    return [turno for turno in turnos if turno > ahora]
+    return [
+        turno for turno in turnos
+        if ULTIMA_LLEGADA_SERVICIO.get(turno, turno) > ahora
+    ]
 
 
-
-
-def servicio_de_hora(hora):
-    """Devuelve comida/cena según la hora de llegada."""
-    if time(13, 0) <= hora <= time(16, 0):
-        return "comida"
-    if time(20, 0) <= hora <= time(22, 30):
-        return "cena"
-    return None
 
 
 def hora_ocupada(fecha, hora, excluir_reserva_id=None):
@@ -312,6 +330,9 @@ def plazas_disponibles(fecha, hora, zona, excluir_reserva_id=None):
     zona = zona_base(zona)
 
     if zona == "completo":
+        # El restaurante completo solo se puede reservar si el servicio está vacío.
+        if reservas_del_mismo_periodo(fecha, hora, excluir_reserva_id).exists():
+            return 0
         return CAPACIDAD_TOTAL
 
     return max(
@@ -336,12 +357,6 @@ def existe_cena_antigua_activa(fecha, excluir_reserva_id=None):
     return reservas_que_ocupan(excluir_reserva_id).filter(
         fecha=fecha, servicio="cena", cena_sistema_antiguo=True
     ).exists()
-
-
-def cena_con_sistema_antiguo(fecha, excluir_reserva_id=None):
-    """En fechas de transición, cualquier cena antigua activa mantiene el modo anterior."""
-    return (nuevo_sistema_activo(fecha, "cena")
-            and existe_cena_antigua_activa(fecha, excluir_reserva_id))
 
 
 def cena_con_sistema_nuevo(fecha, excluir_reserva_id=None):
@@ -672,7 +687,7 @@ def horas_llegada_para_turno(fecha, turno, excluir_reserva_id=None):
 
     # NUEVO SISTEMA DE CENAS
     if turno == "cena" and cena_con_sistema_nuevo(fecha, excluir_reserva_id):
-        return horas_llegada_nueva_cena(fecha)
+        return horas_llegada_nueva_cena(fecha, excluir_reserva_id)
 
     # SISTEMA ANTERIOR
     if turno == "comida":
@@ -887,7 +902,7 @@ def plazas_libres_nueva_cena(
     if dia_bloqueado(fecha):
         return 0
 
-    if hora not in horas_llegada_nueva_cena(fecha):
+    if hora not in horas_llegada_nueva_cena(fecha, excluir_reserva_id):
         return 0
 
     ocupadas = ocupacion_barra_intervalo(
@@ -900,7 +915,7 @@ def plazas_libres_nueva_cena(
     return max(CAPACIDAD_BARRA_CENA - ocupadas, 0)
 
 
-def horas_llegada_nueva_cena(fecha):
+def horas_llegada_nueva_cena(fecha, excluir_reserva_id=None):
     """
     Devuelve los horarios permitidos de cena.
     No comprueba las plazas disponibles.
@@ -909,7 +924,7 @@ def horas_llegada_nueva_cena(fecha):
     if not nuevo_sistema_activo(fecha, "cena"):
         return []
 
-    if dia_bloqueado(fecha) or not cena_con_sistema_nuevo(fecha):
+    if dia_bloqueado(fecha) or not cena_con_sistema_nuevo(fecha, excluir_reserva_id):
         return []
 
     if time(20, 0) not in obtener_turnos_para_fecha(fecha):

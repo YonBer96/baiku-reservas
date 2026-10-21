@@ -1,7 +1,6 @@
-django
-python-decouple
-stripe
-gunicorn
-whitenoise
-dj-database-url
-psycopg2-binary
+Django==5.2.7
+python-decouple==3.8
+gunicorn==25.1.0
+whitenoise==6.12.0
+dj-database-url==3.0.1
+psycopg2-binary==2.9.11

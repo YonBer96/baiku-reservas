@@ -8,6 +8,10 @@
     </h2>
 
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:15px 0;">
+        <a class="option-button" href="?fecha={{ mes_anterior|date:'Y-m-d' }}">
+            « Mes anterior
+        </a>
+
         <a class="option-button" href="?fecha={{ fecha_anterior|date:'Y-m-d' }}">
             ← Día anterior
         </a>
@@ -20,10 +24,19 @@
             Día siguiente →
         </a>
 
+        <a class="option-button" href="?fecha={{ mes_siguiente|date:'Y-m-d' }}">
+            Mes siguiente »
+        </a>
+
         <a class="button" href="{% url 'staff_buscar_reserva' %}">
             🔎 Buscar reserva
         </a>
     </div>
+
+    <form method="get" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:0 0 15px;">
+        <input type="date" name="fecha" value="{{ fecha|date:'Y-m-d' }}" onchange="this.form.submit()">
+        <button class="option-button" type="submit">Ir a fecha</button>
+    </form>
 
     <p>
         <strong>Total reservas:</strong> {{ total_reservas }}<br>
