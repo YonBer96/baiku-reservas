@@ -1,8 +1,14 @@
 from django.urls import path
+from django.views.generic import TemplateView
 from . import views
 
 urlpatterns = [
     path("", views.inicio, name="inicio"),
+    path(
+        "legal/",
+        TemplateView.as_view(template_name="reservas/legal.html"),
+        name="legal",
+    ),
     path("reservar/personas/", views.reserva_personas, name="reserva_personas"),
     path("reservar/fecha/", views.reserva_fecha, name="reserva_fecha"),
     path("api/calendario-reservas/", views.calendario_reservas_api, name="calendario_reservas_api"),

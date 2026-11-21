@@ -310,3 +310,106 @@ class TestStaffNavegacion(TestCase):
             respuesta,
             f"{reverse('staff_hoy')}?fecha={reserva.fecha.isoformat()}",
         )
+
+
+# =========================
+# TEXTOS LEGALES Y RGPD
+# =========================
+
+class TestPaginaLegal(TestCase):
+    def test_pagina_legal_disponible(self):
+        respuesta = self.client.get(reverse("legal"))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "Aviso legal")
+        self.assertContains(respuesta, "Política de privacidad")
+        self.assertContains(respuesta, "Política de cookies")
+        self.assertContains(respuesta, "77184428Q")
+
+    def test_inicio_enlaza_a_legal(self):
+        respuesta = self.client.get(reverse("inicio"))
+        self.assertContains(respuesta, reverse("legal"))
+
+
+class TestConsentimientosFormulario(TestCase):
+    def setUp(self):
+        session = self.client.session
+        session["reserva"] = {
+            "fecha": proximo_viernes().isoformat(),
+            "zona": "barra",
+            "personas": 2,
+        }
+        session.save()
+
+    def _post(self, **extra):
+        datos = {
+            "nombre": "Ana García",
+            "email": "ana@example.com",
+            "email_confirmacion": "ana@example.com",
+            "telefono": "612345678",
+            "notas": "",
+        }
+        datos.update(extra)
+        return self.client.post(reverse("reserva_datos"), datos)
+
+    def test_formulario_muestra_casillas(self):
+        respuesta = self.client.get(reverse("reserva_datos"))
+        self.assertContains(respuesta, 'name="acepta_privacidad"')
+        self.assertContains(respuesta, 'name="consiente_alergias"')
+
+    def test_sin_aceptar_privacidad_no_avanza(self):
+        respuesta = self._post()
+        self.assertRedirects(respuesta, reverse("reserva_datos"), fetch_redirect_response=False)
+
+    def test_notas_sin_consentimiento_no_avanza(self):
+        respuesta = self._post(acepta_privacidad="1", notas="Alergia al marisco")
+        self.assertRedirects(respuesta, reverse("reserva_datos"), fetch_redirect_response=False)
+        self.assertNotIn("notas", self.client.session.get("reserva", {}))
+
+    def test_notas_con_consentimiento_avanza(self):
+        respuesta = self._post(
+            acepta_privacidad="1",
+            consiente_alergias="1",
+            notas="Alergia al marisco",
+        )
+        self.assertRedirects(respuesta, reverse("reserva_resumen"), fetch_redirect_response=False)
+        self.assertEqual(self.client.session["reserva"]["notas"], "Alergia al marisco")
+
+    def test_sin_notas_no_pide_consentimiento_alergias(self):
+        respuesta = self._post(acepta_privacidad="1")
+        self.assertRedirects(respuesta, reverse("reserva_resumen"), fetch_redirect_response=False)
+
+
+class TestLimpiarDatos(TestCase):
+    def test_vacia_notas_y_anonimiza_por_antiguedad(self):
+        from django.core.management import call_command
+
+        hoy = timezone.localdate()
+        reciente = crear_reserva_cliente(hoy - timedelta(days=5), notas="Celíaco")
+        mes = crear_reserva_cliente(hoy - timedelta(days=40), notas="Celíaco")
+        anio = crear_reserva_cliente(hoy - timedelta(days=400), notas="Celíaco")
+
+        call_command("limpiar_datos", stdout=open(__import__("os").devnull, "w"))
+
+        for r in (reciente, mes, anio):
+            r.refresh_from_db()
+
+        self.assertEqual(reciente.notas, "Celíaco")
+        self.assertEqual(reciente.nombre, "Ana García")
+
+        self.assertEqual(mes.notas, "")
+        self.assertEqual(mes.nombre, "Ana García")
+
+        self.assertEqual(anio.notas, "")
+        self.assertEqual(anio.nombre, "Anonimizado")
+        self.assertEqual(anio.telefono, "")
+        self.assertNotEqual(anio.email, "ana@example.com")
+
+    def test_dry_run_no_modifica(self):
+        from django.core.management import call_command
+
+        hoy = timezone.localdate()
+        vieja = crear_reserva_cliente(hoy - timedelta(days=400), notas="Celíaco")
+        call_command("limpiar_datos", "--dry-run", stdout=open(__import__("os").devnull, "w"))
+        vieja.refresh_from_db()
+        self.assertEqual(vieja.nombre, "Ana García")
+        self.assertEqual(vieja.notas, "Celíaco")

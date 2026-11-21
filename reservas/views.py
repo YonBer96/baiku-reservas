@@ -565,6 +565,24 @@ def reserva_datos(request):
             messages.error(request, "El teléfono no es válido.")
             return redirect("reserva_datos")
 
+        # RGPD: aceptación de la política de privacidad.
+        if not request.POST.get("acepta_privacidad"):
+            messages.error(
+                request,
+                "Para continuar debes aceptar la política de privacidad y el aviso legal.",
+            )
+            return redirect("reserva_datos")
+
+        # RGPD art. 9: las alergias son datos de salud y necesitan
+        # consentimiento explícito. Sin él no se guardan las notas.
+        if notas and not request.POST.get("consiente_alergias"):
+            messages.error(
+                request,
+                "Para guardar las notas (alergias, intolerancias…) "
+                "marca la casilla de consentimiento.",
+            )
+            return redirect("reserva_datos")
+
         guardar_reserva_session(
             request,
             {"nombre": nombre, "email": email, "telefono": telefono, "notas": notas},

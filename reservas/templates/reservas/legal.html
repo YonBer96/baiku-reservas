@@ -1,0 +1,163 @@
+{% extends "reservas/base.html" %}
+
+{% block content %}
+<style>
+    .legal { text-align: left; line-height: 1.6; }
+    .legal h2 { margin-top: 2rem; }
+    .legal h3 { margin-top: 1.4rem; font-size: 1.05rem; }
+    .legal ul { padding-left: 1.2rem; }
+    .legal table { width: 100%; border-collapse: collapse; margin: 0.8rem 0; font-size: 0.92rem; }
+    .legal th, .legal td { border: 1px solid rgba(128, 128, 128, 0.35); padding: 0.5rem; vertical-align: top; text-align: left; }
+    .legal .indice a { display: inline-block; margin: 0 0.6rem 0.4rem 0; }
+    .legal .table-wrap { overflow-x: auto; }
+</style>
+
+<div class="card legal">
+    <h2 style="margin-top:0">Información legal</h2>
+    <p class="indice">
+        <a href="#aviso-legal">Aviso legal</a>
+        <a href="#privacidad">Política de privacidad</a>
+        <a href="#cookies">Política de cookies</a>
+    </p>
+
+    <!-- ===================== AVISO LEGAL ===================== -->
+    <h2 id="aviso-legal">Aviso legal</h2>
+
+    <h3>1. Datos identificativos</h3>
+    <p>En cumplimiento del artículo 10 de la Ley 34/2002, de 11 de julio, de Servicios de la Sociedad de la Información y de Comercio Electrónico (LSSI-CE), se informa de que este sitio web, https://baiku-reservas.onrender.com, es titularidad de:</p>
+    <ul>
+        <li>Titular: Jonatan Rafael Jiménez Gracia</li>
+        <li>NIF: 77184428Q</li>
+        <li>Nombre comercial: Baiku</li>
+        <li>Domicilio: Calle Doctor Miguel Díaz Recio, 38, local 1, 29010 Málaga (Málaga)</li>
+        <li>Correo electrónico: <a href="mailto:baiku.restaurante@gmail.com">baiku.restaurante@gmail.com</a></li>
+    </ul>
+
+    <h3>2. Objeto</h3>
+    <p>Este sitio web permite consultar la disponibilidad y gestionar reservas en el restaurante Baiku: crear, modificar y cancelar reservas. El acceso es gratuito y no requiere registro.</p>
+
+    <h3>3. Condiciones de uso</h3>
+    <p>El acceso y uso del sitio atribuye la condición de usuario e implica la aceptación de este aviso legal. El usuario se compromete a:</p>
+    <ul>
+        <li>Facilitar datos veraces y propios al realizar una reserva.</li>
+        <li>No hacer reservas falsas o en nombre de terceros sin su autorización.</li>
+        <li>No usar el sitio con fines ilícitos ni dañar su funcionamiento.</li>
+    </ul>
+    <p>La reserva solo queda confirmada cuando el usuario recibe el email de confirmación. El titular podrá anular reservas que incumplan estas condiciones.</p>
+
+    <h3>4. Propiedad intelectual e industrial</h3>
+    <p>Los contenidos del sitio (textos, logotipo, diseño y código) pertenecen al titular o cuenta con licencia para usarlos. Queda prohibida su reproducción, distribución o transformación sin autorización expresa.</p>
+
+    <h3>5. Responsabilidad</h3>
+    <p>El titular trabaja para que el sitio funcione correctamente, pero no garantiza la ausencia de interrupciones o errores. No responde de los daños derivados de fallos técnicos ajenos a su control ni del uso indebido del sitio por parte de los usuarios.</p>
+
+    <h3>6. Protección de datos y cookies</h3>
+    <p>El tratamiento de datos personales se explica en la <a href="#privacidad">Política de privacidad</a>, y el uso de cookies en la <a href="#cookies">Política de cookies</a>.</p>
+
+    <h3>7. Legislación aplicable</h3>
+    <p>Este aviso legal se rige por la legislación española. Para cualquier controversia, si el usuario es consumidor, serán competentes los juzgados de su domicilio.</p>
+
+    <!-- ===================== PRIVACIDAD ===================== -->
+    <h2 id="privacidad">Política de privacidad</h2>
+
+    <h3>1. Responsable del tratamiento</h3>
+    <ul>
+        <li>Responsable: Jonatan Rafael Jiménez Gracia (Baiku)</li>
+        <li>NIF: 77184428Q</li>
+        <li>Domicilio: Calle Doctor Miguel Díaz Recio, 38, local 1, 29010 Málaga (Málaga)</li>
+        <li>Correo electrónico: <a href="mailto:baiku.restaurante@gmail.com">baiku.restaurante@gmail.com</a></li>
+    </ul>
+
+    <h3>2. Qué datos tratamos</h3>
+    <p>Al hacer una reserva recogemos:</p>
+    <ul>
+        <li>Nombre.</li>
+        <li>Correo electrónico.</li>
+        <li>Teléfono.</li>
+        <li>Datos de la reserva: fecha, hora, servicio (comida o cena), número de personas y zona (barra o mesa).</li>
+        <li>Notas que quieras añadir. Si indicas alergias o intolerancias, son datos de salud y solo los tratamos con tu consentimiento explícito.</li>
+    </ul>
+    <p>No te pedimos que te registres ni creamos ningún perfil de usuario.</p>
+
+    <h3>3. Para qué los usamos y con qué base legal</h3>
+    <div class="table-wrap">
+    <table>
+        <thead><tr><th>Finalidad</th><th>Base legal</th></tr></thead>
+        <tbody>
+            <tr><td>Gestionar tu reserva y comprobar la disponibilidad</td><td>Ejecución de la reserva que solicitas (art. 6.1.b RGPD)</td></tr>
+            <tr><td>Enviarte emails de confirmación, modificación, cancelación y un recordatorio el día anterior</td><td>Ejecución de la reserva (art. 6.1.b RGPD)</td></tr>
+            <tr><td>Permitirte consultar, modificar o cancelar tu reserva con tu email y teléfono</td><td>Ejecución de la reserva (art. 6.1.b RGPD)</td></tr>
+            <tr><td>Tener en cuenta alergias o intolerancias que nos indiques</td><td>Tu consentimiento explícito (art. 9.2.a RGPD)</td></tr>
+            <tr><td>Contactarte por teléfono si hay una incidencia con tu reserva</td><td>Ejecución de la reserva (art. 6.1.b RGPD)</td></tr>
+            <tr><td>Mantener la seguridad del sitio web</td><td>Interés legítimo (art. 6.1.f RGPD)</td></tr>
+        </tbody>
+    </table>
+    </div>
+    <p>No usamos tus datos para enviarte publicidad ni para tomar decisiones automatizadas o elaborar perfiles.</p>
+    <p>Los datos del formulario son necesarios para hacer la reserva: si no los facilitas, no podremos gestionarla. Las notas son opcionales.</p>
+
+    <h3>4. Cuánto tiempo los conservamos</h3>
+    <ul>
+        <li>Datos de la reserva: hasta 12 meses después de la fecha de la reserva. Después se eliminan o se anonimizan y solo se conservan datos estadísticos sin identificarte.</li>
+        <li>Notas sobre alergias o intolerancias: se eliminan como máximo 30 días después de la fecha de la reserva.</li>
+        <li>Si retiras tu consentimiento o pides la supresión, borramos los datos antes, salvo que debamos conservarlos por una obligación legal o para atender reclamaciones.</li>
+    </ul>
+
+    <h3>5. A quién se comunican</h3>
+    <p>No cedemos tus datos a terceros salvo obligación legal. Para prestar el servicio contamos con proveedores que actúan como encargados del tratamiento, con contrato y solo siguiendo nuestras instrucciones:</p>
+    <ul>
+        <li>Render Services, Inc.: alojamiento de la web y de la base de datos.</li>
+        <li>Google LLC: envío de los emails de la reserva.</li>
+    </ul>
+    <p>Algunos de estos proveedores tienen sede en Estados Unidos. Cuando hay transferencia internacional, se ampara en el Marco de Privacidad de Datos UE-EE. UU. o en las cláusulas contractuales tipo de la Comisión Europea.</p>
+
+    <h3>6. Tus derechos</h3>
+    <p>Puedes ejercer en cualquier momento los derechos de acceso, rectificación, supresión, oposición, limitación del tratamiento y portabilidad. También puedes retirar el consentimiento dado para los datos de alergias, sin que afecte al tratamiento anterior.</p>
+    <p>Para ejercerlos, escribe a <a href="mailto:baiku.restaurante@gmail.com">baiku.restaurante@gmail.com</a> indicando qué derecho ejerces y el email y teléfono de la reserva. Te responderemos en el plazo de un mes. También puedes modificar o cancelar tu reserva desde la opción «Gestionar mi reserva».</p>
+    <p>Si consideras que no hemos atendido bien tu solicitud, puedes reclamar ante la Agencia Española de Protección de Datos (<a href="https://www.aepd.es" target="_blank" rel="noopener">www.aepd.es</a>).</p>
+
+    <h3>7. Seguridad</h3>
+    <p>Aplicamos medidas técnicas y organizativas adecuadas: conexión cifrada (HTTPS), acceso al panel interno solo para personal autorizado con usuario y contraseña, y protección frente a accesos no autorizados.</p>
+
+    <h3>8. Menores de edad</h3>
+    <p>Las reservas deben hacerlas personas mayores de 14 años. Si eres menor de esa edad, la reserva debe hacerla tu padre, madre o tutor.</p>
+
+    <h3>9. Datos de terceros</h3>
+    <p>Si haces una reserva para un grupo, solo necesitamos los datos de la persona que reserva. No incluyas en las notas datos de salud de otras personas sin su permiso.</p>
+
+    <h3>10. Cambios en esta política</h3>
+    <p>Podemos actualizar esta política cuando cambie el servicio o la normativa. La versión vigente es siempre la publicada en esta página.</p>
+
+    <!-- ===================== COOKIES ===================== -->
+    <h2 id="cookies">Política de cookies</h2>
+
+    <h3>1. Qué son las cookies</h3>
+    <p>Las cookies son pequeños archivos que un sitio web guarda en tu navegador para que funcione o para recordar información sobre tu visita.</p>
+
+    <h3>2. Qué cookies usa esta web</h3>
+    <p>Esta web solo usa cookies técnicas propias, imprescindibles para que funcione el sistema de reservas. No usamos cookies de analítica, publicidad ni redes sociales, y no hay cookies de terceros.</p>
+    <div class="table-wrap">
+    <table>
+        <thead><tr><th>Cookie</th><th>Titular</th><th>Para qué sirve</th><th>Duración</th></tr></thead>
+        <tbody>
+            <tr><td>sessionid</td><td>Baiku (propia)</td><td>Guarda los pasos de la reserva en curso y permite gestionar tu reserva tras identificarte</td><td>2 semanas</td></tr>
+            <tr><td>csrftoken</td><td>Baiku (propia)</td><td>Protege los formularios frente a envíos fraudulentos (seguridad)</td><td>1 año</td></tr>
+            <tr><td>messages</td><td>Baiku (propia)</td><td>Muestra avisos de un solo uso, como «reserva cancelada»</td><td>Hasta cerrar el navegador</td></tr>
+        </tbody>
+    </table>
+    </div>
+
+    <h3>3. Base legal</h3>
+    <p>Estas cookies están exceptuadas del deber de consentimiento por el artículo 22.2 de la LSSI-CE, porque son estrictamente necesarias para prestar el servicio que solicitas. Por eso no mostramos un banner de consentimiento.</p>
+
+    <h3>4. Cómo eliminarlas o bloquearlas</h3>
+    <p>Puedes borrar o bloquear las cookies desde la configuración de tu navegador (Chrome, Firefox, Safari o Edge, en el apartado de privacidad). Si las bloqueas, es posible que no puedas completar o gestionar una reserva.</p>
+
+    <h3>5. Cambios</h3>
+    <p>Si en el futuro incorporamos cookies que requieran tu consentimiento, te lo pediremos antes de instalarlas y actualizaremos esta política.</p>
+
+    <p class="muted">Última actualización: 21 de noviembre de 2026.</p>
+
+    <a class="button" href="{% url 'inicio' %}">Volver al inicio</a>
+</div>
+{% endblock %}

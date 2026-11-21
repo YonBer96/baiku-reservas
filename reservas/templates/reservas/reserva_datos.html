@@ -33,6 +33,24 @@
             <textarea name="notas" placeholder="Alergias, comentarios..."></textarea>
         </div>
 
+        <div class="field">
+            <label style="display:flex; gap:0.5rem; align-items:flex-start; font-weight:normal;">
+                <input type="checkbox" name="consiente_alergias" value="1" style="width:auto; margin-top:0.25rem;">
+                <span>Si indico alergias o intolerancias, consiento expresamente que Baiku trate esa información solo para adaptar mi servicio. Se borrará a los 30 días de la reserva.</span>
+            </label>
+        </div>
+
+        <div class="field">
+            <label style="display:flex; gap:0.5rem; align-items:flex-start; font-weight:normal;">
+                <input type="checkbox" name="acepta_privacidad" value="1" required style="width:auto; margin-top:0.25rem;">
+                <span>He leído y acepto la <a href="{% url 'legal' %}#privacidad" target="_blank">política de privacidad</a> y el <a href="{% url 'legal' %}#aviso-legal" target="_blank">aviso legal</a>.</span>
+            </label>
+        </div>
+
+        <p class="muted" style="font-size:0.8rem; text-align:left;">
+            Responsable: Jonatan Rafael Jiménez Gracia (Baiku). Finalidad: gestionar tu reserva y enviarte la confirmación y un recordatorio. Base legal: ejecución de la reserva y, para alergias, tu consentimiento. Destinatarios: no se ceden datos, salvo a proveedores de alojamiento y email. Derechos: acceso, rectificación, supresión y otros en baiku.restaurante@gmail.com. Más información en la <a href="{% url 'legal' %}#privacidad" target="_blank">política de privacidad</a>.
+        </p>
+
         <button class="button">Continuar</button>
     </form>
 
